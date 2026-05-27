@@ -3,25 +3,46 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --ink:   #1B4D32;
+  --ink2:  #16402A;
+  --mid:   #4A6358;
+  --muted: #7A9688;
+  --rule:  #C8DDD2;
+  --light: #DCF0E4;
+  --cream: #E8F2FB;
+  --white: #F6FBFF;
+  --sage:  #3A8C54;
+  --sage2: #58AC6E;
+  --sagep: #E0F5E8;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-dm-sans), sans-serif;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.65;
+  overflow-x: hidden;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+/* 스크롤 Reveal 애니메이션 */
+.rv {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity .6s ease, transform .6s ease;
+}
+
+.rv.on {
+  opacity: 1;
+  transform: none;
+}
+
+.d1 { transition-delay: .1s; }
+.d2 { transition-delay: .2s; }
+.d3 { transition-delay: .3s; }
+
+@media print {
+  .no-print {
+    display: none !important;
   }
 }
