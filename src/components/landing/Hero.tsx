@@ -99,14 +99,14 @@ export default function Hero() {
           {/* H1 Title */}
           <h1 
             style={{ 
-              fontSize: 'clamp(62px, 7.8vw, 98px)',
+              fontSize: 'clamp(44px, 6.2vw, 82px)',
               textShadow: '0 2px 24px rgba(0,0,0,.55), 0 1px 6px rgba(0,0,0,.4)'
             }} 
-            className="font-fraunces font-light leading-[1.04] tracking-tight text-white"
+            className="font-fraunces font-light leading-[1.1] tracking-tight text-white"
           >
-            소재 탐색에<br />
-            <span style={{ color: '#ffffff', textShadow: '0 2px 20px rgba(0,0,0,.6)' }} className="italic font-normal">수개월이</span><br />
-            걸립니까.
+            자생 산림소재<br />
+            <span style={{ color: '#ffffff', textShadow: '0 2px 20px rgba(0,0,0,.6)' }} className="italic font-normal">R&D를</span><br />
+            오늘 시작하세요.
           </h1>
 
           {/* Description */}
