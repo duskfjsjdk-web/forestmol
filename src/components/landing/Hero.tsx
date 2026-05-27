@@ -91,7 +91,7 @@ export default function Hero() {
         <div className="space-y-6 max-w-[720px]">
           
           {/* Eyebrow */}
-          <div style={{ color: '#ffffff', opacity: 0.95, textShadow: '0 1px 8px rgba(0,0,0,0.6)' }} className="text-sm md:text-base tracking-[0.14em] uppercase font-dmsans font-semibold leading-none text-left">
+          <div style={{ color: '#ffffff', opacity: 0.95, textShadow: '0 1px 8px rgba(0,0,0,0.6)' }} className="text-sm md:text-base tracking-[0.24em] uppercase font-dmsans font-semibold leading-none text-left">
             <span>산림 바이오소재 AI 큐레이션 플랫폼</span>
           </div>
 
