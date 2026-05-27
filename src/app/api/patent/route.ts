@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
 
+export const dynamic = 'force-dynamic';
+
 // ─────────────────────────────────────────────
 // KIPRIS 특허 정보 조회 백엔드 서비스 상자
 // ─────────────────────────────────────────────
