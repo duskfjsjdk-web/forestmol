@@ -101,7 +101,7 @@ export default function Hero() {
               fontSize: 'clamp(32px, 4.3vw, 58px)',
               textShadow: '0 2px 24px rgba(0,0,0,.55), 0 1px 6px rgba(0,0,0,.4)'
             }} 
-            className="font-fraunces font-light leading-[1.1] tracking-tight text-white !mt-2.5"
+            className="font-fraunces font-light leading-[1.1] tracking-tight text-white !mt-1"
           >
             자생 산림소재<br />
             <span style={{ color: '#ffffff', textShadow: '0 2px 20px rgba(0,0,0,.6)' }} className="italic font-normal">R&D를</span><br />
