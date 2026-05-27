@@ -99,7 +99,7 @@ export default function Hero() {
           {/* H1 Title */}
           <h1 
             style={{ 
-              fontSize: 'clamp(44px, 6.2vw, 82px)',
+              fontSize: 'clamp(32px, 4.3vw, 58px)',
               textShadow: '0 2px 24px rgba(0,0,0,.55), 0 1px 6px rgba(0,0,0,.4)'
             }} 
             className="font-fraunces font-light leading-[1.1] tracking-tight text-white"
