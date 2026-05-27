@@ -5,6 +5,8 @@ import { generateReportHtml } from '@/lib/report-template';
 import Anthropic from '@anthropic-ai/sdk';
 import crypto from 'crypto';
 
+export const dynamic = 'force-dynamic';
+
 function getMockPatentCount(query: string) {
   let hash = 0;
   for (let i = 0; i < query.length; i++) {
