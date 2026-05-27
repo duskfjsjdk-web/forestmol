@@ -29,8 +29,11 @@ export async function GET(request: Request) {
     // 데이터베이스 데이터와 유사도 매칭을 위해 768차원의 gemini-embedding-001 모델을 사용합니다.
     const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
 
-    // 2. 768차원 쿼리 임베딩 생성
-    const response = await model.embedContent(queryText);
+    // 2. 768차원 쿼리 임베딩 생성 (데이터베이스의 768차원 벡터 컬럼 규격에 맞춰 강제 지정)
+    const response = await model.embedContent({
+      content: { role: 'user', parts: [{ text: queryText }] },
+      outputDimensionality: 768,
+    } as any);
     const queryEmbedding = response.embedding.values;
 
     // 3. Supabase pgvector 검색 함수(match_materials) 실행
