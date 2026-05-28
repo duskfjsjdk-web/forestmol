@@ -300,7 +300,16 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
           const tags = raw
             .split(',')
             .map((t: string) => t.trim().replace(/\s*등$/, ''))
-            .filter((t: string) => t.length > 1 && !t.includes(':') && !t.includes('(') && !t.includes('■'))
+            .filter((t: string) =>
+              t.length > 1 &&
+              !t.includes(':') &&
+              !t.includes('(') &&
+              !t.includes('■') &&
+              !t.match(/^[A-Z]/) &&
+              !['Residue','Fraction','Extract',
+                'EtOH','MeOH','Hexane','EA',
+                'BuOH','Water'].includes(t)
+            )
             .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
             .slice(0, 6);
           if (tags.length === 0) return null;
