@@ -249,27 +249,27 @@ export function generateReportHtml(
       cosmeticCardHtml = `
         <div class="reg-card reg-ok" style="margin-top: 8px;">
           <div class="reg-title" style="font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
-            <span>✓ 화장품 원료 사용 가능 (식약처 기준)</span>
+            <span>✓ 식약처 원료성분 등록 확인</span>
           </div>
-          <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6;">본 천연 추출물은 현행 식약처 안전 기준 및 배합 한도 규정에 의거하여 국내 화장품 제조 원료로 즉각 사용이 가능합니다.</div>
+          <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6;">식약처 화장품 원료성분 목록에 등록된 원료입니다.</div>
         </div>
       `;
     } else if (m.cosmetic_allowed === false) {
       cosmeticCardHtml = `
         <div class="reg-card reg-no" style="margin-top: 8px;">
           <div class="reg-title" style="font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
-            <span>✕ 사용 제한 원료</span>
+            <span>⚠️ 식약처 미등록 (별도 확인 필요)</span>
           </div>
-          <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6; color:#712B13;">주의: 해당 소재 또는 특정 성분은 식약처 고시에 따라 화장품 배합 제한 및 사용 금지 물질에 해당할 수 있어 사용이 제한됩니다.</div>
+          <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6; color:#633806;">식약처 원료성분 목록에 없음. 사용 금지가 아니며 신규 원료이거나 다른 명칭으로 등록됐을 수 있음.</div>
         </div>
       `;
     } else {
       cosmeticCardHtml = `
         <div class="reg-card reg-check" style="margin-top: 8px; background: #F5F5F4; border: 0.5px solid #E7E5E4; color: #44403C;">
           <div class="reg-title" style="font-size: 13px; font-weight: bold; color: #44403C;">
-            <span>― 별도 확인 필요</span>
+            <span>― 성분 정보 없음</span>
           </div>
-          <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6; color: #78716C;">식약처 데이터베이스 상 해당 국문 명칭의 표준 원료명이 명확하게 등록되지 않아, 대한화장품협회 성분 사전(ICID) 등록 정보 및 개별 원료 스펙서의 검토가 요구됩니다.</div>
+          <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6; color: #78716C;">해당 소재의 화합물(compounds) 성분 정보가 등록되어 있지 않아 적합성을 판별할 수 없습니다.</div>
         </div>
       `;
     }

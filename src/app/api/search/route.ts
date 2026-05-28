@@ -62,9 +62,40 @@ export async function GET(request: Request) {
       }
 
       const displaySpecies = item.species || item.scientific_name || '정보 없음';
-      const displayBioactivity = (item.bioactivity && item.bioactivity.length > 0)
-        ? item.bioactivity.join(', ')
-        : (item.effect ? item.effect.replace(/\r\n/g, ' ').replace(/\n/g, ' ').trim() : '정보 없음');
+      const isEssentialOil = item.data_source === '식물정유은행';
+      const EFFECT_KEYWORDS = [
+        '항산화','항균','항염','항암','미백','보습',
+        '주름','진정','항노화','살균','면역','소염',
+        '진통','강장','이뇨','항진균','항바이러스'
+      ];
+
+      const extractEffectFromUsage = (usage: string): string => {
+        if (!usage) return '';
+        const keywords = usage
+          .split('■')
+          .map(s => s.trim())
+          .map(s => s.split(/[\s(,]/)[0].trim())
+          .filter(t => EFFECT_KEYWORDS.some(kw => t.startsWith(kw)));
+        return keywords.join(', ');
+      };
+
+      const displayBioactivity = isEssentialOil
+        ? extractEffectFromUsage(item.usage_method || '')
+        : (
+            item.bioactivity &&
+            Array.isArray(item.bioactivity) &&
+            item.bioactivity.length > 0
+          )
+            ? item.bioactivity[0]
+            : (item.effect ? item.effect.replace(/\r\n/g, ' ').replace(/\n/g, ' ').trim() : '');
+
+      if (isEssentialOil) {
+        console.log('정유은행 소재:', {
+          name: item.name,
+          usage_method: item.usage_method,
+          display_bioactivity: displayBioactivity,
+        });
+      }
 
       return {
         ...item,

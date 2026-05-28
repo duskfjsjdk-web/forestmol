@@ -20,11 +20,14 @@ export async function GET(request: Request) {
       );
     }
 
-    const apiKey = process.env.DATA_GO_KR_API_KEY;
-    if (!apiKey) {
-      console.warn('⚠️ [Patent API] DATA_GO_KR_API_KEY 환경변수가 없어 모형(Mock) 데이터를 반환합니다.');
-      return getMockResponse(queryText);
+    if (!process.env.DATA_GO_KR_API_KEY) {
+      return NextResponse.json({
+        count: 0,
+        status: 'unavailable'
+      });
     }
+
+    const apiKey = process.env.DATA_GO_KR_API_KEY;
 
     // 공공데이터포털 특허 정보 검색 API 주소
     // 서비스키가 특수문자를 포함하고 있으므로, 자동으로 인코딩되지 않게 템플릿 리터럴로 직접 구성합니다.

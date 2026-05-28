@@ -39,7 +39,7 @@ function MainLandingContent() {
       <LandingInfo />
 
       {/* 푸터 영역 */}
-      <footer className="bg-[#1C1917] text-stone-400 py-16 px-6 border-t border-stone-850">
+      <footer className="bg-[#16402a] text-stone-400 py-16 px-6 border-t border-white/10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#2D5016] flex items-center justify-center">

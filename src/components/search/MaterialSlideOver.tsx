@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Bookmark, FlaskConical, Building2, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Clock, FileText, Loader2, FolderPlus, Plus } from 'lucide-react';
+import { X, Bookmark, FlaskConical, Building2, CheckCircle2, AlertTriangle, CircleHelp, ChevronDown, ChevronUp, Clock, FileText, Loader2, FolderPlus, Plus } from 'lucide-react';
 import { type Material } from './MaterialCard';
 import { toggleBookmark, checkBookmarked } from '@/app/actions/bookmark';
 import { getProjects, createProject, addMaterialToProject } from '@/app/actions/project';
+import { parseBioactivityTags, parseBioactivityDetail } from '@/utils/parseBioactivity';
 
 interface MaterialSlideOverProps {
   material: Material | null;
@@ -17,6 +18,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [patentCount, setPatentCount] = useState<number | null>(null);
   const [patentLoading, setPatentLoading] = useState(true);
+  const [patentStatus, setPatentStatus] = useState<string | null>(null);
   const [showAllCompounds, setShowAllCompounds] = useState(false);
   const [showAllPathways, setShowAllPathways] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -78,12 +80,18 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
         if (!res.ok) throw new Error('조회 실패');
         const data = await res.json();
         if (active) {
-          setPatentCount(data.totalCount ?? 0);
+          if (data.status === 'unavailable') {
+            setPatentStatus('unavailable');
+          } else {
+            setPatentCount(data.totalCount ?? 0);
+            setPatentStatus(null);
+          }
         }
       } catch (err) {
         console.error('슬라이드오버 특허 조회 실패:', err);
         if (active) {
           setPatentCount(0);
+          setPatentStatus(null);
         }
       } finally {
         if (active) {
@@ -103,49 +111,17 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   if (!material) return null;
 
   const displayName = material.name_ko || material.name || '이름 없음';
-  const displayScientific = material.scientific_name || material.species || material.display_species || null;
+  const rawScientific = material.scientific_name || material.species || material.display_species || null;
+  const displayScientific = rawScientific
+    ? rawScientific
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+    : null;
 
   // 1. 생리활성 효능 가공 및 태그 추출
   const rawBio = material.display_bioactivity || '';
-  const extractedTags: string[] = [];
-
-  if (rawBio) {
-    // '■' 기호를 기준으로 분리
-    const parts = rawBio.split('■');
-    parts.forEach(part => {
-      const trimmed = part.trim();
-      if (!trimmed) return;
-
-      // 괄호 ( 이후 및 대시 -, 쉼표 , 혹은 공백 등으로 단어를 분리
-      const words = trimmed.split(/[,\s\(\)\-]+/);
-      words.forEach(word => {
-        const w = word.trim();
-        // 효능을 의미하는 핵심 단어 검출
-        if (/^(항균|항산화|항염|미백|보습|진정|탄력|주름|항암|항알레르기|항바이러스|아토피|면역)/.test(w)) {
-          const match = w.match(/^(항균|항산화|항염|미백|보습|진정|탄력|주름|항암|항알레르기|항바이러스|아토피|면역)/);
-          if (match && match[0]) {
-            extractedTags.push(match[0]);
-          }
-        }
-      });
-    });
-  }
-
-  // 매칭된 태그가 없으면 기본으로 각 파트의 첫 단어를 폴백으로 추출
-  if (extractedTags.length === 0 && rawBio) {
-    const parts = rawBio.split('■');
-    parts.forEach(part => {
-      const trimmed = part.trim();
-      if (!trimmed) return;
-      const firstWord = trimmed.split(/[,\s\(\)\-]+/)[0]?.trim();
-      if (firstWord && firstWord.length < 15) {
-        extractedTags.push(firstWord);
-      }
-    });
-  }
-
-  // 중복 태그 제거
-  const bioactivityTags = Array.from(new Set(extractedTags));
+  const bioactivityTags = parseBioactivityTags(rawBio);
 
   const compounds = material.compounds || [];
   const displayCompounds = showAllCompounds ? compounds : compounds.slice(0, 10);
@@ -375,6 +351,45 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
             )}
           </section>
 
+          {/* 3. 화장품 원료 적합성 (식약처 검증) */}
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-stone-300" />
+              화장품 원료 적합성
+            </h3>
+            {(material as any).cosmetic_allowed === true ? (
+              <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+                <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-emerald-800">식약처 원료성분 등록 확인</p>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">
+                    식약처 화장품 원료성분 목록에 등록된 원료
+                  </p>
+                </div>
+              </div>
+            ) : (material as any).cosmetic_allowed === false ? (
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3.5">
+                <AlertTriangle className="w-4.5 h-4.5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-amber-800">식약처 미등록 (별도 확인 필요)</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    식약처 원료성분 목록에 없음. 사용 금지가 아니며 신규 원료이거나 다른 명칭으로 등록됐을 수 있음.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-3 bg-stone-50 border border-stone-200 rounded-xl p-3.5">
+                <CircleHelp className="w-4.5 h-4.5 text-stone-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-stone-700">성분 정보 없음</p>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    해당 소재의 화합물(compounds) 성분 정보가 등록되어 있지 않아 적합성을 판별할 수 없습니다.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* 2.5. KEGG 데이터 섹션 (성분 목록 바로 아래) */}
           {((material.kegg_pathways && material.kegg_pathways.length > 0) || (material.kegg_enzymes && material.kegg_enzymes.length > 0)) && (
             <div className="space-y-5 border-t border-stone-100 pt-5">
@@ -441,47 +456,49 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
           )}
 
           {/* 3. 특허 선행조사 */}
-          <section className="space-y-2.5 bg-[#FAF7F0]/60 border border-stone-200/60 rounded-2xl p-4.5">
-            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
-              국내 특허 선행조사 결과
-            </h3>
-            
-            {patentLoading ? (
-              <div className="flex items-center gap-2 text-stone-400 text-xs py-1 animate-pulse">
-                <Clock className="w-4 h-4 animate-spin text-[#2D5016]" />
-                <span>특허청 KIPRIS 실시간 조회 중...</span>
-              </div>
-            ) : patentCount !== null && patentCount > 0 ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-amber-700 font-bold text-sm bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2">
-                  <AlertTriangle className="w-4.5 h-4.5 shrink-0" />
-                  <span>KR: ✕ 특허 존재 ({patentCount}건 검출)</span>
+          {patentStatus !== 'unavailable' && (
+            <section className="space-y-2.5 bg-[#FAF7F0]/60 border border-stone-200/60 rounded-2xl p-4.5">
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
+                국내 특허 선행조사 결과
+              </h3>
+              
+              {patentLoading ? (
+                <div className="flex items-center gap-2 text-stone-400 text-xs py-1 animate-pulse">
+                  <Clock className="w-4 h-4 animate-spin text-[#2D5016]" />
+                  <span>특허청 KIPRIS 실시간 조회 중...</span>
                 </div>
-                <p className="text-[11px] text-stone-500 leading-relaxed">
-                  출원 및 등록된 특허가 검색되었습니다. 제품 상용화 계획 수립 시 특허 침해 요소를 면밀히 분석할 것을 권장합니다.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm bg-emerald-50 border border-emerald-100 rounded-xl px-3.5 py-2">
-                  <CheckCircle2 className="w-4.5 h-4.5 shrink-0" />
-                  <span>KR: ✓ 안전 (동일명 특허 없음)</span>
+              ) : patentCount !== null && patentCount > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-amber-700 font-bold text-sm bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2">
+                    <AlertTriangle className="w-4.5 h-4.5 shrink-0" />
+                    <span>KR: ✕ 특허 존재 ({patentCount}건 검출)</span>
+                  </div>
+                  <p className="text-[11px] text-stone-500 leading-relaxed">
+                    출원 및 등록된 특허가 검색되었습니다. 제품 상용화 계획 수립 시 특허 침해 요소를 면밀히 분석할 것을 권장합니다.
+                  </p>
                 </div>
-                <p className="text-[11px] text-stone-500 leading-relaxed">
-                  특허청 데이터베이스에서 해당 소재 단독 명칭으로 출원된 특허를 찾지 못했습니다. 기술 경쟁력 확보가 유리할 수 있습니다.
-                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm bg-emerald-50 border border-emerald-100 rounded-xl px-3.5 py-2">
+                    <CheckCircle2 className="w-4.5 h-4.5 shrink-0" />
+                    <span>KR: ✓ 안전 (동일명 특허 없음)</span>
+                  </div>
+                  <p className="text-[11px] text-stone-500 leading-relaxed">
+                    특허청 데이터베이스에서 해당 소재 단독 명칭으로 출원된 특허를 찾지 못했습니다. 기술 경쟁력 확보가 유리할 수 있습니다.
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-stone-200/50 pt-2 flex justify-between text-[10px] text-stone-400">
+                <span>조회 기준일: {todayString}</span>
+                <span>출처: 특허정보원 (KIPRIS)</span>
               </div>
-            )}
 
-            <div className="border-t border-stone-200/50 pt-2 flex justify-between text-[10px] text-stone-400">
-              <span>조회 기준일: {todayString}</span>
-              <span>출처: 특허정보원 (KIPRIS)</span>
-            </div>
-
-            <p className="text-[9px] text-stone-400/80 leading-normal mt-1 border-t border-stone-200/40 pt-1.5">
-              ※ 본 특허 검증은 국내 특허청 공개정보를 활용한 단순 키워드 선행조사이며, 법적 효력을 가지지 않으므로 최종 상용화 검토는 전문 변리사의 진단이 필요합니다.
-            </p>
-          </section>
+              <p className="text-[9px] text-stone-400/80 leading-normal mt-1 border-t border-stone-200/40 pt-1.5">
+                ※ 본 특허 검증은 국내 특허청 공개정보를 활용한 단순 키워드 선행조사이며, 법적 효력을 가지지 않으므로 최종 상용화 검토는 전문 변리사의 진단이 필요합니다.
+              </p>
+            </section>
+          )}
 
           {/* 4. 데이터 출처 정보 */}
           <section className="space-y-2 text-[11px] text-stone-500 bg-stone-50/50 border border-stone-150 rounded-xl p-3.5 font-medium">
