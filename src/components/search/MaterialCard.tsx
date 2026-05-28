@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bookmark, FlaskConical, Building2 } from 'lucide-react';
 import { toggleBookmark, checkBookmarked } from '@/app/actions/bookmark';
+import { parseBioactivityTags } from '@/utils/parseBioactivity';
 
 // materials 테이블에서 반환되는 소재 데이터 타입 정의
 export interface Material {
@@ -24,6 +25,10 @@ export interface Material {
   kegg_id?: string | null;
   kegg_pathways?: { id: string; name: string }[] | null;
   kegg_enzymes?: { id: string; name: string }[] | null;
+  // 식물정유은행 호환용 필드 추가
+  name?: string;
+  scientific_name?: string;
+  usage_method?: string;
 }
 
 interface MaterialCardProps {
@@ -49,21 +54,28 @@ function getSimilarityPercent(similarity: number | undefined): number {
   return Math.min(100, Math.max(0, Math.round(pct)));
 }
 
-// bioactivity 배열에서 태그용 칩 목록 추출 (최대 4개)
-function getBioactivityTags(material: Material): string[] {
-  if (material.bioactivity && Array.isArray(material.bioactivity) && material.bioactivity.length > 0) {
-    // 짧은 태그만 필터링 (30자 이하), 최대 4개
-    return material.bioactivity
-      .filter(tag => typeof tag === 'string' && tag.length <= 30 && tag.length > 0)
-      .slice(0, 4);
-  }
-  return [];
+// HTML 엔티티 디코딩 함수
+function decodeHtmlEntities(str: string | null): string | null {
+  if (!str) return null;
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
 }
 
 export function MaterialCard({ material, onClick, isSelected = false }: MaterialCardProps) {
+  console.log('CARD DATA:', {
+    name: (material as any).name,
+    name_ko: material.name_ko,
+    usage_method: (material as any).usage_method,
+    bioactivity: material.bioactivity,
+    data_source: material.data_source,
+  });
+
   const [bookmarked, setBookmarked] = useState(false);
   const [patentCount, setPatentCount] = useState<number | null>(null);
   const [patentLoading, setPatentLoading] = useState(true);
+  const [patentStatus, setPatentStatus] = useState<string | null>(null);
 
   // 실시간 북마크 상태 체크
   useEffect(() => {
@@ -102,12 +114,18 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
         
         const data = await res.json();
         if (active) {
-          setPatentCount(data.totalCount ?? 0);
+          if (data.status === 'unavailable') {
+            setPatentStatus('unavailable');
+          } else {
+            setPatentCount(data.totalCount ?? 0);
+            setPatentStatus(null);
+          }
         }
       } catch (err) {
         console.error('특허 조회 에러:', err);
         if (active) {
           setPatentCount(0);
+          setPatentStatus(null);
         }
       } finally {
         if (active) {
@@ -125,14 +143,60 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
 
   // 한글명: name_ko 우선, 없으면 name
   const displayName = material.name_ko || material.name || '이름 없음';
-  // 학명: scientific_name 우선, 없으면 species, 없으면 display_species
-  const displayScientific = material.scientific_name || material.species || material.display_species || null;
+  // 학명: scientific_name 우선, 없으면 species, 없으면 display_species (HTML 엔티티 디코딩 적용)
+  const rawScientific = material.scientific_name || material.species || material.display_species || null;
+  const displayScientific = decodeHtmlEntities(rawScientific);
   // 소재 출처
   const sourceLabel = getSourceLabel(material.data_source);
   // 유사도 퍼센트
   const simPct = getSimilarityPercent(material.similarity);
-  // 효능 태그
-  const tags = getBioactivityTags(material);
+  const bioTags = (() => {
+    // 1순위: bioactivity[0] 사용
+    if (
+      material.bioactivity &&
+      Array.isArray(material.bioactivity) &&
+      material.bioactivity.length > 0 &&
+      typeof material.bioactivity[0] === 'string'
+    ) {
+      return (material.bioactivity[0] as string)
+        .split(',')
+        .map((t: string) => t.trim().replace(/\s*등$/, '').trim())
+        .filter((t: string) =>
+          t.length > 1 &&
+          !t.includes(':') &&
+          !t.includes('(')
+        );
+    }
+
+    // 2순위: usage_method 에서 "■ 키워드" 추출 (효능 키워드 화이트리스트 적용)
+    const um = (material as any).usage_method;
+    if (um && typeof um === 'string') {
+      const EFFECT_KEYWORDS = [
+        '항산화', '항균', '항염', '항암', '항바이러스',
+        '미백', '보습', '주름', '탄력', '진정',
+        '항노화', '항알레르기', '항진균', '살균',
+        '면역', '혈당', '혈압', '콜레스테롤',
+        '소염', '진통', '해열', '이뇨', '강장',
+      ];
+
+      return um
+        .split('■')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0)
+        .map((s: string) => s.split(/[\s(,]/)[0].trim())
+        .filter((t: string) => {
+          if (t.length <= 1 || t.includes(':') || t.match(/^\d/)) {
+            return false;
+          }
+          // 화이트리스트 키워드가 추출 단어에 포함되거나 일치하는지 확인
+          return EFFECT_KEYWORDS.some(kw => t.includes(kw));
+        })
+        .slice(0, 6);
+    }
+
+    return [];
+  })();
+
   // 성분 수
   const compoundCount = Array.isArray(material.compounds) ? material.compounds.length : 0;
 
@@ -149,10 +213,16 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
       {/* 상단 줄: 출처 배지 + 특허 배지 + 순위 */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
-          {/* 데이터 출처 배지 */}
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${sourceLabel.color}`}>
-            {sourceLabel.label}
-          </span>
+          {sourceLabel && (
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${sourceLabel.color}`}>
+              {sourceLabel.label}
+            </span>
+          )}
+          {material.similarity !== undefined && (
+            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full">
+              유사도 {simPct}%
+            </span>
+          )}
           {/* 출처 기관 */}
           {material.source_org && (
             <span className="flex items-center gap-0.5 text-[10px] text-stone-400 font-medium">
@@ -164,18 +234,20 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
 
         {/* 특허 배지 영역 (실시간 KIPRIS 연동) */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {patentLoading ? (
-            <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
-              특허 조회중...
-            </span>
-          ) : patentCount !== null && patentCount > 0 ? (
-            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full whitespace-nowrap">
-              특허 {patentCount}건
-            </span>
-          ) : (
-            <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 border border-stone-200/50 px-2 py-0.5 rounded-full whitespace-nowrap">
-              특허 없음
-            </span>
+          {patentStatus !== 'unavailable' && (
+            patentLoading ? (
+              <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
+                특허 조회중...
+              </span>
+            ) : patentCount !== null && patentCount > 0 ? (
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full whitespace-nowrap">
+                특허 {patentCount}건
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 border border-stone-200/50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                특허 없음
+              </span>
+            )
           )}
           {/* 북마크 버튼 */}
           <button
@@ -208,33 +280,46 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
         <h3 className="font-bold text-base text-stone-900 leading-tight group-hover:text-[#2D5016] transition-colors">
           {displayName}
         </h3>
+        {/* 효능 태그 - 직접 계산 */}
+        {(() => {
+          const m = material as any;
+          let raw = '';
+          if (Array.isArray(m.bioactivity) && m.bioactivity[0]) {
+            raw = String(m.bioactivity[0]);
+          } else if (m.display_bioactivity) {
+            raw = String(m.display_bioactivity);
+          } else if (m.usage_method) {
+            const kws = ['항산화','항균','항염','항암','미백','보습','주름','진정','항노화','살균','면역','소염','진통','강장','이뇨'];
+            raw = m.usage_method
+              .split('■')
+              .map((s: string) => s.trim().split(/[\s(,]/)[0].trim())
+              .filter((t: string) => kws.some((k: string) => t.startsWith(k)))
+              .join(',');
+          }
+          if (!raw) return null;
+          const tags = raw
+            .split(',')
+            .map((t: string) => t.trim().replace(/\s*등$/, ''))
+            .filter((t: string) => t.length > 1 && !t.includes(':') && !t.includes('(') && !t.includes('■'))
+            .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
+            .slice(0, 6);
+          if (tags.length === 0) return null;
+          return (
+            <div style={{display:'flex',flexWrap:'wrap',gap:'4px',marginTop:'8px'}}>
+              {tags.map((tag: string) => (
+                <span key={tag} style={{fontSize:'11px',padding:'2px 8px',borderRadius:'100px',background:'#E0F5E8',color:'#1B4D32',border:'1px solid #C8DDD2'}}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
         {displayScientific && (
           <p className="text-xs text-stone-400 font-mono leading-relaxed truncate" title={displayScientific}>
             {displayScientific}
           </p>
         )}
       </div>
-
-      {/* 효능 태그 */}
-      {tags.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map((tag, i) => (
-            <span
-              key={i}
-              className="text-[10px] font-semibold bg-[#2D5016]/8 text-[#2D5016] border border-[#2D5016]/15 px-2 py-0.5 rounded-full"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      ) : (
-        // bioactivity가 긴 텍스트인 경우 (약용소재)
-        material.display_bioactivity && material.display_bioactivity !== '정보 없음' && (
-          <p className="text-xs text-stone-500 leading-relaxed line-clamp-2">
-            {material.display_bioactivity}
-          </p>
-        )
-      )}
 
       {/* 구분선 */}
       <div className="border-t border-stone-100" />
