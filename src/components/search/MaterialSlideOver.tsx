@@ -21,6 +21,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [patentStatus, setPatentStatus] = useState<string | null>(null);
   const [showAllCompounds, setShowAllCompounds] = useState(false);
   const [showAllPathways, setShowAllPathways] = useState(false);
+  const [showAllEnzymes, setShowAllEnzymes] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const [showRawBio, setShowRawBio] = useState(false);
 
@@ -53,6 +54,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
     setPatentLoading(true);
     setShowAllCompounds(false);
     setShowAllPathways(false);
+    setShowAllEnzymes(false);
     setShowDropdown(false);
     setShowModal(false);
     setShowRawBio(false);
@@ -123,9 +125,19 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const rawBio = material.display_bioactivity || '';
   const bioactivityTags = parseBioactivityTags(rawBio);
 
-  const compounds = material.compounds || [];
-  const displayCompounds = showAllCompounds ? compounds : compounds.slice(0, 10);
-  const hasMoreCompounds = compounds.length > 10;
+  const compoundsList = material.compounds || [];
+  const uniqueCompounds = compoundsList.reduce(
+    (acc: any[], compound: any) => {
+      const key = (compound.cas || compound.cas_no || compound.name || compound.name_ko || '').trim();
+      if (key && !acc.some(c => (c.cas || c.cas_no || c.name || c.name_ko || '').trim() === key)) {
+        acc.push(compound);
+      }
+      return acc;
+    }, []
+  );
+
+  const displayCompounds = showAllCompounds ? uniqueCompounds : uniqueCompounds.slice(0, 10);
+  const hasMoreCompounds = uniqueCompounds.length > 10;
 
   const todayString = new Date().toLocaleDateString('ko-KR', {
     year: 'numeric',
@@ -307,11 +319,11 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                 함유 화학 성분 목록
               </h3>
               <span className="text-[10px] font-bold text-stone-400 bg-stone-100 px-2 py-0.5 rounded-md">
-                전체 {compounds.length}개
+                전체 {uniqueCompounds.length}개
               </span>
             </div>
 
-            {compounds.length > 0 ? (
+            {uniqueCompounds.length > 0 ? (
               <div className="space-y-1.5">
                 <div className="flex flex-wrap gap-1.5">
                   {displayCompounds.map((c, i) => (
@@ -340,7 +352,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                       </>
                     ) : (
                       <>
-                        전체 {compounds.length}개 모두 보기 <ChevronDown className="w-3 h-3" />
+                        전체 {uniqueCompounds.length}개 모두 보기 <ChevronDown className="w-3 h-3" />
                       </>
                     )}
                   </button>
@@ -433,7 +445,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                     ⚗ 관련 효소
                   </h3>
                   <div className="bg-white border border-stone-200 rounded-2xl overflow-hidden divide-y divide-stone-100 shadow-sm">
-                    {material.kegg_enzymes.slice(0, 5).map((enzyme, idx) => (
+                    {(showAllEnzymes ? material.kegg_enzymes : material.kegg_enzymes.slice(0, 5)).map((enzyme, idx) => (
                       <div
                         key={idx}
                         className="px-3.5 py-2.5 flex justify-between items-center text-xs text-stone-700 font-medium"
@@ -445,9 +457,15 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                       </div>
                     ))}
                     {material.kegg_enzymes.length > 5 && (
-                      <div className="px-3.5 py-2 bg-stone-50/50 text-[9px] text-stone-400 text-center font-semibold border-t border-stone-100">
-                        외 {material.kegg_enzymes.length - 5}개
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowAllEnzymes(!showAllEnzymes)}
+                        className="w-full py-2 bg-stone-50 hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-[10px] text-center font-bold border-t border-stone-150 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        {showAllEnzymes
+                          ? '접기 ▲'
+                          : `외 ${material.kegg_enzymes.length - 5}개 더 보기 ▼`}
+                      </button>
                     )}
                   </div>
                 </section>

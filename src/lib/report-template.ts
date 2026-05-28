@@ -142,18 +142,42 @@ export function generateReportHtml(
       }
     }
 
+    // CAS No 또는 성분명 기준 중복 제거
+    const uniqueCompounds = compoundList.reduce((acc, compound) => {
+      const key = (compound.cas || compound.name || '').trim();
+      if (key && !acc.some(c => (c.cas || c.name || '').trim() === key)) {
+        acc.push(compound);
+      }
+      return acc;
+    }, [] as typeof compoundList);
+
     let compoundsSectionHtml = '';
-    if (compoundList && compoundList.length > 0) {
-      const displayCompounds = compoundList.slice(0, 10);
-      const extraCount = compoundList.length - 10;
+    if (uniqueCompounds && uniqueCompounds.length > 0) {
+      const displayCompounds = uniqueCompounds.slice(0, 10);
+      const remainingCompounds = uniqueCompounds.slice(10);
+      const extraCount = remainingCompounds.length;
       
-      const rows = displayCompounds.map(c => `
+      const mainRows = displayCompounds.map(c => `
         <tr>
           <td style="font-weight: 500; color: var(--color-text-primary);">${c.name || '성분명 없음'}</td>
           <td style="color:var(--color-text-tertiary); font-family:var(--font-mono); font-size:11px;">${c.cas || '-'}</td>
           <td style="color:var(--color-text-secondary);">KNApSAck DB</td>
         </tr>
       `).join('');
+
+      let remainingRows = '';
+      if (extraCount > 0) {
+        remainingRows = remainingCompounds.map(c => `
+          <tr>
+            <td style="font-weight: 500; color: var(--color-text-primary);">${c.name || '성분명 없음'}</td>
+            <td style="color:var(--color-text-tertiary); font-family:var(--font-mono); font-size:11px;">${c.cas || '-'}</td>
+            <td style="color:var(--color-text-secondary);">KNApSAck DB</td>
+          </tr>
+        `).join('');
+      }
+
+      // 고유 ID 생성 (소재 ID의 특수문자 제거)
+      const uniqueId = m.id.replace(/[^a-zA-Z0-9]/g, '');
 
       compoundsSectionHtml = `
         <!-- §2-B 주요 성분 목록 -->
@@ -172,10 +196,32 @@ export function generateReportHtml(
               </tr>
             </thead>
             <tbody>
-              ${rows}
+              ${mainRows}
             </tbody>
+            ${extraCount > 0 ? `
+            <tbody id="all-compounds-${uniqueId}" style="display:none">
+              ${remainingRows}
+            </tbody>
+            ` : ''}
           </table>
-          ${extraCount > 0 ? `<div style="font-size:11px;color:var(--color-text-tertiary);margin-top:6px;font-style:italic;">* 외 ${extraCount}개의 성분이 추가 식별되었습니다.</div>` : ''}
+          ${extraCount > 0 ? `
+          <div style="margin-top:12px; text-align:center;">
+            <button onclick="
+              var t = document.getElementById('all-compounds-${uniqueId}');
+              var b = document.getElementById('toggle-btn-${uniqueId}');
+              if(t.style.display === 'none'){
+                t.style.display = 'table-row-group';
+                b.textContent = '접기 ▲';
+              } else {
+                t.style.display = 'none';
+                b.textContent = '외 ${extraCount}개 성분 모두 보기 ▼';
+              }
+            " id="toggle-btn-${uniqueId}"
+            style="background:#E6F1FB; color:#185FA5; border:1.5px solid #B5D4F4; padding:6px 14px; border-radius:6px; font-size:11px; font-weight:bold; cursor:pointer; transition:all 0.2s;">
+              외 ${extraCount}개 성분 모두 보기 ▼
+            </button>
+          </div>
+          ` : ''}
         </div>
       `;
     }
