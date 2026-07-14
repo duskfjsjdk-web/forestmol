@@ -7,34 +7,23 @@ import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
-function getMockPatentCount(query: string) {
-  let hash = 0;
-  for (let i = 0; i < query.length; i++) {
-    hash = query.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash) % 7;
-}
-
-async function fetchPatentCount(query: string): Promise<number> {
+// 특허 개수 조회 - API 실패 시 null 반환
+async function fetchPatentCount(query: string): Promise<number | null> {
   const apiKey = process.env.DATA_GO_KR_API_KEY;
-  if (!apiKey) {
-    return getMockPatentCount(query);
-  }
+  if (!apiKey) return null;
   try {
     const url = `http://apis.data.go.kr/1192000/PatUtiModInfoSearchService/getWordSearch?word=${encodeURIComponent(query)}&year=0&patent=true&utility=true&numOfRows=1&pageNo=1&serviceKey=${apiKey}`;
     const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/xml' } });
-    if (!res.ok) return getMockPatentCount(query);
-    
+    if (!res.ok) return null;
     const xmlData = await res.text();
     const match = xmlData.match(/<totalCount>(\d+)<\/totalCount>/i);
-    if (match && match[1]) {
-      return Number(match[1]);
-    }
-    return getMockPatentCount(query);
+    if (match && match[1]) return Number(match[1]);
+    return null;
   } catch {
-    return getMockPatentCount(query);
+    return null;
   }
 }
+
 
 async function fetchPubChemCid(query: string): Promise<number | null> {
   console.log(`🧪 [PubChem CID] 조회 시도 (CAS 또는 성분명): "${query}"`);
@@ -116,7 +105,7 @@ export async function POST(request: Request) {
     // 3. Supabase materials 테이블에서 실제 데이터 조회
     const { data: materials, error: materialsError } = await supabase
       .from('materials')
-      .select('id, name_ko, name, species, scientific_name, bioactivity, compounds, cosmetic_allowed, raw_data, source_org, data_source, kegg_id, kegg_pathways, kegg_enzymes')
+      .select('id, name_ko, name, species, scientific_name, bioactivity, compounds, cosmetic_allowed, cosmetic_matched_ingredients, raw_data, source_org, data_source, distribution, kegg_id, kegg_pathways, kegg_enzymes, usage_method')
       .in('id', finalMaterialIds);
 
     if (materialsError || !materials) {
@@ -171,17 +160,42 @@ export async function POST(request: Request) {
       };
     });
 
+    const formattedMaterials = aiInputMaterials.map((m: any) => {
+      const logData = {
+        name_ko: m.name_ko,
+        compounds: m.compounds?.slice(0,3),
+        kegg_pathways: m.kegg_pathways?.slice(0,2),
+        kegg_enzymes: m.kegg_enzymes?.slice(0,2)
+      };
+      console.log(`KEGG prompt data for ${m.name_ko}:`, logData);
+
+      return `소재명: ${m.name_ko}
+주요 성분: ${Array.isArray(m.compounds) ? m.compounds.slice(0,3).map((c:any) => c.name).join(', ') : '정보 없음'}
+관련 효소: ${Array.isArray(m.kegg_enzymes) ? m.kegg_enzymes.slice(0,2).map((e:any) => `${e.name}(EC ${e.id})`).join(', ') : '정보 없음'}
+대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2).map((p:any) => p.name).join(', ') : '정보 없음'}
+생리활성: ${Array.isArray(m.bioactivity) ? m.bioactivity.join(', ') : m.bioactivity || '정보 없음'}
+화장품사용여부: ${m.cosmetic_allowed ? '가능' : '불가'}`;
+    }).join('\n---\n');
+
     const systemPrompt = `당신은 화장품 소재 연구 보조 AI입니다.
 주어진 실제 DB 데이터만 기반으로 설명합니다.
 데이터 없는 수치(함량, IC₅₀, 점수 등)는 절대 생성하지 않습니다.
 출력은 JSON만, 마크다운 없이.`;
 
-    const userPrompt = `소재 정보: ${JSON.stringify(aiInputMaterials)}
+    const keggInterpretationsPrompt = aiInputMaterials.map((m: any) => 
+      `"${m.name_ko || m.name}": "제공된 성분과 효소 이름만으로 화학적 성분 전환과 화장품 소재(항산화, 미백, 보습 등)로서의 가치를 최대한 논리적으로 유추해서 2문장으로 작성해줘. 예시: '광나무의 Oleuropein 성분은 효소 처리 시 항산화 활성이 강화된 하이드록시타이로솔로 전환될 가능성이 있습니다.' 전문 용어는 쉽게 풀어서, 한국어로 작성."`
+    ).join(',\n    ');
+
+    const userPrompt = `소재 정보:
+${formattedMaterials}
 
 아래 JSON 형식으로만 응답해:
 {
   "effect_summary": "소재 효능 요약 2~3문장 (bioactivity 기반)",
   "cosmetic_interpretation": "화장품 활용 가능성 2문장 (cosmetic_allowed 기반)",
+  "material_kegg_interpretations": {
+    ${keggInterpretationsPrompt}
+  },
   "timeline": [
     { "period": "즉시 — 2주 이내", "action": "..", "desc": ".." },
     { "period": "1~3개월", "action": "..", "desc": ".." },
@@ -193,6 +207,7 @@ export async function POST(request: Request) {
     let aiResult = {
       effect_summary: '소재 추출물의 효능 분석 요약입니다.',
       cosmetic_interpretation: '화장품 원료 배합 적합성 검토 결과입니다.',
+      material_kegg_interpretations: {} as Record<string, string>,
       timeline: [
         { period: '즉시 — 2주 이내', action: '분양 신청 및 실물 확보', desc: '분양 코드를 활용하여 무상 분양을 신청하고 원료 공급을 가시화합니다.' },
         { period: '1~3개월', action: '안전성 평가 및 제형 개발', desc: 'OECD 가이드라인 기준 피부 안도 평가를 설계하고 가속 보관 안정성 시험을 시작합니다.' },
@@ -202,8 +217,24 @@ export async function POST(request: Request) {
     };
 
     try {
-      console.log(`🤖 [AI Interpretation] Gemini 모델 기동 중... (모델명: gemini-1.5-pro)`);
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}`;
+      console.log(`🤖 [AI Interpretation] Gemini 모델 기동 중... (모델명: gemini-3.5-flash)`);
+
+      console.log('=== KEGG Claude 프롬프트 ===');
+      console.log('systemPrompt:', systemPrompt);
+      console.log('userPrompt:', userPrompt);
+      console.log('=== 전달 데이터 ===');
+      aiInputMaterials.forEach((material: any) => {
+        console.log({
+          name_ko: material.name_ko,
+          compounds_count: material.compounds?.length,
+          compounds_sample: material.compounds?.slice(0,3)?.map((c: any) => c.name),
+          kegg_enzymes_count: material.kegg_enzymes?.length,
+          kegg_enzymes_sample: material.kegg_enzymes?.slice(0,2),
+          kegg_pathways_count: material.kegg_pathways?.length,
+        });
+      });
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
       
       const response = await fetch(url, {
         method: 'POST',
@@ -289,13 +320,15 @@ export async function POST(request: Request) {
         species: m.species || m.scientific_name || '',
         data_source: m.data_source || '',
         source_org: m.source_org || '',
-        region: m.region || '',
+        region: (m as any).region || '',
+        distribution: (m as any).distribution || null,
         bioactivity: m.bioactivity || [],
         compounds: m.compounds || [],
         patent_count: patentCount,
         patents: [],
-        raw_data: m.raw_data || {},
+        raw_data: (() => { console.log('raw_data:', m.raw_data); return m.raw_data || {}; })(),
         cosmetic_allowed: m.cosmetic_allowed,
+        cosmetic_matched_ingredients: m.cosmetic_matched_ingredients || null,
         kegg_id: m.kegg_id || null,
         kegg_enzymes: m.kegg_enzymes || [],
         kegg_pathways: m.kegg_pathways || [],

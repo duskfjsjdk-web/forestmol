@@ -37,7 +37,14 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     try {
       const { data, error } = await supabase
         .from('materials')
-        .select('*')
+        .select(`
+          id, name, name_ko, scientific_name, species,
+          source_org, source_type, data_source,
+          bioactivity, compounds, effect, distribution, usage_method,
+          raw_data,
+          kegg_id, kegg_pathways, kegg_enzymes,
+          cosmetic_allowed, cosmetic_matched_ingredients
+        `)
         .eq('id', materialId)
         .single();
 

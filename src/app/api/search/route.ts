@@ -1,8 +1,34 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { parseBioactivityTags } from '@/utils/parseBioactivity';
 
 export const dynamic = 'force-dynamic';
+
+const embeddingCache = new Map<string, number[]>();
+
+async function getEmbeddingWithRetry(model: any, text: string, retries = 3): Promise<number[]> {
+  if (embeddingCache.has(text)) {
+    return embeddingCache.get(text)!;
+  }
+  
+  try {
+    const response = await model.embedContent({
+      content: { role: 'user', parts: [{ text }] },
+      outputDimensionality: 768,
+    } as any);
+    const embedding = response.embedding.values;
+    embeddingCache.set(text, embedding);
+    return embedding;
+  } catch (error: any) {
+    if (error.status === 429 && retries > 0) {
+      console.warn(`[API SEARCH] 429 Rate Limit Hit. Retrying in 3 seconds... (${retries} retries left)`);
+      await new Promise(r => setTimeout(r, 3000));
+      return getEmbeddingWithRetry(model, text, retries - 1);
+    }
+    throw error;
+  }
+}
 
 export async function GET(request: Request) {
   try {
@@ -29,12 +55,10 @@ export async function GET(request: Request) {
     // 데이터베이스 데이터와 유사도 매칭을 위해 768차원의 gemini-embedding-001 모델을 사용합니다.
     const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
 
-    // 2. 768차원 쿼리 임베딩 생성 (데이터베이스의 768차원 벡터 컬럼 규격에 맞춰 강제 지정)
-    const response = await model.embedContent({
-      content: { role: 'user', parts: [{ text: queryText }] },
-      outputDimensionality: 768,
-    } as any);
-    const queryEmbedding = response.embedding.values;
+    // 2. 768차원 쿼리 임베딩 생성 (캐싱 및 재시도 로직 적용)
+    const queryEmbedding = await getEmbeddingWithRetry(model, queryText);
+
+    console.log(`[API SEARCH] URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL}, queryText: "${queryText}", Embedding length: ${queryEmbedding.length}, first val: ${queryEmbedding[0]}`);
 
     // 3. Supabase pgvector 검색 함수(match_materials) 실행
     const { data: materials, error: searchError } = await supabase.rpc(
@@ -63,31 +87,47 @@ export async function GET(request: Request) {
 
       const displaySpecies = item.species || item.scientific_name || '정보 없음';
       const isEssentialOil = item.data_source === '식물정유은행';
-      const EFFECT_KEYWORDS = [
-        '항산화','항균','항염','항암','미백','보습',
-        '주름','진정','항노화','살균','면역','소염',
-        '진통','강장','이뇨','항진균','항바이러스'
+      let rawBio = '';
+      if (item.bioactivity && Array.isArray(item.bioactivity) && item.bioactivity.length > 0) {
+        rawBio = item.bioactivity[0];
+      } else {
+        const combined = [];
+        if (item.effect) combined.push(item.effect);
+        if (item.usage_method) combined.push(item.usage_method);
+        if (combined.length > 0) {
+          rawBio = combined.join(' ■ ')
+            .split('■')
+            .map((s: string) => s.trim().split(/[\s(,]/)[0].trim())
+            .filter((t: string) => t.length > 0)
+            .join(',');
+        }
+      }
+
+      const COSMETIC_KEYWORDS = [
+        '항균', '항산화', '항염', '항노화', '항암',
+        '미백', '보습', '주름', '피부', '진정',
+        '탄력', '두피', '모발', '발모', '살균',
+        '항진균', '항바이러스', '소염', '면역',
+        '윤택', '윤기', '항알레르기',
+        '양모', '육모', '피부윤택', '피부미용',
+        '보윤', '수렴', '각질', '재생',
+        '진통', '소종', '해독', '청열',
+        '혈액순환', '혈행', '강장', '자양',
+        '강정', '피로', '활력', '원기',
+        '윤장', '윤폐', '건조', '방부',
+        '방향', '탈취', '광노화'
       ];
 
-      const extractEffectFromUsage = (usage: string): string => {
-        if (!usage) return '';
-        const keywords = usage
-          .split('■')
-          .map(s => s.trim())
-          .map(s => s.split(/[\s(,]/)[0].trim())
-          .filter(t => EFFECT_KEYWORDS.some(kw => t.startsWith(kw)));
-        return keywords.join(', ');
-      };
-
-      const displayBioactivity = isEssentialOil
-        ? extractEffectFromUsage(item.usage_method || '')
-        : (
-            item.bioactivity &&
-            Array.isArray(item.bioactivity) &&
-            item.bioactivity.length > 0
-          )
-            ? item.bioactivity[0]
-            : (item.effect ? item.effect.replace(/\r\n/g, ' ').replace(/\n/g, ' ').trim() : '');
+      const displayBioactivity = rawBio
+        .split(',')
+        .map(t => t.trim().replace(/\s*등$/, '').trim())
+        .filter(t => 
+          t.length > 1 && 
+          !t.includes(':') && 
+          !t.includes('(') &&
+          COSMETIC_KEYWORDS.some(kw => t.includes(kw) || t.startsWith(kw))
+        )
+        .join(', ');
 
       if (isEssentialOil) {
         console.log('정유은행 소재:', {
@@ -101,7 +141,8 @@ export async function GET(request: Request) {
         ...item,
         display_species: displaySpecies,
         display_bioactivity: displayBioactivity,
-        display_compounds: compoundList
+        display_compounds: compoundList,
+        cosmetic_matched_ingredients: item.cosmetic_matched_ingredients
       };
     });
 

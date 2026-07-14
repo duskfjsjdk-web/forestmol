@@ -25,6 +25,12 @@ export interface Material {
   kegg_id?: string | null;
   kegg_pathways?: { id: string; name: string }[] | null;
   kegg_enzymes?: { id: string; name: string }[] | null;
+  cosmetic_allowed?: boolean | null;
+  cosmetic_matched_ingredients?: Array<{
+    ingr_kor_name: string;
+    ingr_eng_name: string;
+    cas_no: string;
+  }> | null;
   // 식물정유은행 호환용 필드 추가
   name?: string;
   scientific_name?: string;
@@ -150,52 +156,6 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
   const sourceLabel = getSourceLabel(material.data_source);
   // 유사도 퍼센트
   const simPct = getSimilarityPercent(material.similarity);
-  const bioTags = (() => {
-    // 1순위: bioactivity[0] 사용
-    if (
-      material.bioactivity &&
-      Array.isArray(material.bioactivity) &&
-      material.bioactivity.length > 0 &&
-      typeof material.bioactivity[0] === 'string'
-    ) {
-      return (material.bioactivity[0] as string)
-        .split(',')
-        .map((t: string) => t.trim().replace(/\s*등$/, '').trim())
-        .filter((t: string) =>
-          t.length > 1 &&
-          !t.includes(':') &&
-          !t.includes('(')
-        );
-    }
-
-    // 2순위: usage_method 에서 "■ 키워드" 추출 (효능 키워드 화이트리스트 적용)
-    const um = (material as any).usage_method;
-    if (um && typeof um === 'string') {
-      const EFFECT_KEYWORDS = [
-        '항산화', '항균', '항염', '항암', '항바이러스',
-        '미백', '보습', '주름', '탄력', '진정',
-        '항노화', '항알레르기', '항진균', '살균',
-        '면역', '혈당', '혈압', '콜레스테롤',
-        '소염', '진통', '해열', '이뇨', '강장',
-      ];
-
-      return um
-        .split('■')
-        .map((s: string) => s.trim())
-        .filter((s: string) => s.length > 0)
-        .map((s: string) => s.split(/[\s(,]/)[0].trim())
-        .filter((t: string) => {
-          if (t.length <= 1 || t.includes(':') || t.match(/^\d/)) {
-            return false;
-          }
-          // 화이트리스트 키워드가 추출 단어에 포함되거나 일치하는지 확인
-          return EFFECT_KEYWORDS.some(kw => t.includes(kw));
-        })
-        .slice(0, 6);
-    }
-
-    return [];
-  })();
 
   // 성분 수
   const compoundCount = Array.isArray(material.compounds) ? material.compounds.length : 0;
@@ -232,14 +192,10 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
           )}
         </div>
 
-        {/* 특허 배지 영역 (실시간 KIPRIS 연동) */}
+        {/* 특허 배지 영역 - KIPRIS 연동 시에만 표시 */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {patentStatus !== 'unavailable' && (
-            patentLoading ? (
-              <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
-                특허 조회중...
-              </span>
-            ) : patentCount !== null && patentCount > 0 ? (
+          {!patentLoading && patentStatus !== 'unavailable' && patentCount !== null && (
+            patentCount > 0 ? (
               <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full whitespace-nowrap">
                 특허 {patentCount}건
               </span>
@@ -280,39 +236,31 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
         <h3 className="font-bold text-base text-stone-900 leading-tight group-hover:text-[#2D5016] transition-colors">
           {displayName}
         </h3>
-        {/* 효능 태그 - 직접 계산 */}
+        {/* 효능 태그 - 필터링 적용 */}
         {(() => {
           const m = material as any;
           let raw = '';
-          if (Array.isArray(m.bioactivity) && m.bioactivity[0]) {
+          
+          if (Array.isArray(m.bioactivity) && m.bioactivity.length > 0) {
             raw = String(m.bioactivity[0]);
           } else if (m.display_bioactivity) {
             raw = String(m.display_bioactivity);
           } else if (m.usage_method) {
-            const kws = ['항산화','항균','항염','항암','미백','보습','주름','진정','항노화','살균','면역','소염','진통','강장','이뇨'];
+            // 식물정유은행 데이터 특수 처리 (■ 구분자로 키워드 추출 후 콤마 결합)
             raw = m.usage_method
               .split('■')
               .map((s: string) => s.trim().split(/[\s(,]/)[0].trim())
-              .filter((t: string) => kws.some((k: string) => t.startsWith(k)))
+              .filter((t: string) => t.length > 0)
               .join(',');
           }
+          
           if (!raw) return null;
-          const tags = raw
-            .split(',')
-            .map((t: string) => t.trim().replace(/\s*등$/, ''))
-            .filter((t: string) =>
-              t.length > 1 &&
-              !t.includes(':') &&
-              !t.includes('(') &&
-              !t.includes('■') &&
-              !t.match(/^[A-Z]/) &&
-              !['Residue','Fraction','Extract',
-                'EtOH','MeOH','Hexane','EA',
-                'BuOH','Water'].includes(t)
-            )
-            .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
-            .slice(0, 6);
+          
+          // 공통 파서(화장품 키워드 전용 필터링 포함) 사용, 최대 6개로 제한
+          const tags = parseBioactivityTags(raw, 6);
+          
           if (tags.length === 0) return null;
+          
           return (
             <div style={{display:'flex',flexWrap:'wrap',gap:'4px',marginTop:'8px'}}>
               {tags.map((tag: string) => (

@@ -281,16 +281,77 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
     day: 'numeric',
   });
 
-  // bioactivity 파싱 헬퍼
+  // bioactivity 파싱 헬퍼 (화장품 ODM 키워드 필터링 적용)
   const getBioactivities = (m: any) => {
-    if (!m.bioactivity) return [];
-    if (Array.isArray(m.bioactivity)) return m.bioactivity;
-    try {
-      const parsed = JSON.parse(m.bioactivity);
-      return Array.isArray(parsed) ? parsed : [String(m.bioactivity)];
-    } catch {
-      return String(m.bioactivity).split(',').map(s => s.trim());
+    let rawArray: string[] = [];
+    if (!m.bioactivity) {
+      rawArray = [];
+    } else if (Array.isArray(m.bioactivity)) {
+      rawArray = m.bioactivity;
+    } else {
+      try {
+        const parsed = JSON.parse(m.bioactivity);
+        rawArray = Array.isArray(parsed) ? parsed : [String(m.bioactivity)];
+      } catch {
+        rawArray = String(m.bioactivity).split(',').map(s => s.trim());
+      }
     }
+
+    const COSMETIC_KEYWORDS = [
+      // 기존
+      '항균', '항산화', '항염', '항노화', '항암',
+      '미백', '보습', '주름', '피부', '진정',
+      '탄력', '두피', '모발', '발모', '살균',
+      '항진균', '항바이러스', '소염', '면역',
+      '윤택', '윤기', '항알레르기',
+
+      // 추가 — 피부·모발 관련
+      '양모', '육모', '피부윤택', '피부미용',
+      '보윤', '수렴', '각질', '재생',
+
+      // 추가 — 항염·진통 관련
+      '진통', '소종', '해독', '청열',
+      '냉증', '혈액순환', '혈행',
+
+      // 추가 — 강장·활력 관련
+      '강장', '자양', '강정', '피로',
+      '활력', '원기',
+
+      // 추가 — 보습·수분 관련
+      '윤장', '윤폐', '건조',
+
+      // 추가 — 향장품 관련
+      '방부', '방향', '탈취', '자외선',
+      '광노화', '콜라겐', '엘라스틴'
+    ];
+
+    const BLACKLIST_KEYWORDS = [
+      '중풍', '골절', '폐결핵', '치매', '정력', '척추', '심장염', '가슴막염', '칠독',
+      '거풍', '조습', '강직성', '야맹증', '양모발약', '위경련', '연골', '이명',
+      '임신중독', '조해', '종독', '종창', '토혈', '풍비', '허약체질', '화상',
+      '간질', '두현', '신허', '양음', '오로보호', '윤장', '윤폐'
+    ];
+
+    const SOLVENT_KEYWORDS = [
+      'Ethyl Acetate', 'EA', 'EtOH', 'MeOH', 'Hexane', 'BuOH', 'Water', 
+      'Residue', 'Fraction', '분획', '추출', '용매'
+    ];
+    
+    const isEssentialOil = String(m.data_source || '').includes('정유은행');
+
+    return rawArray.filter(bio => {
+      const text = typeof bio === 'object' && bio !== null 
+        ? String((bio as any).activity || JSON.stringify(bio)) 
+        : String(bio);
+      
+      if (isEssentialOil) {
+        return COSMETIC_KEYWORDS.some(kw => text.includes(kw));
+      } else {
+        const hasSolvent = SOLVENT_KEYWORDS.some(kw => text.toLowerCase().includes(kw.toLowerCase()));
+        const hasBlacklist = BLACKLIST_KEYWORDS.some(kw => text.includes(kw));
+        return !hasSolvent && !hasBlacklist;
+      }
+    });
   };
 
   // compounds 파싱 헬퍼 (상위 5개)
@@ -511,37 +572,122 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
             {/* KEGG 대사 경로 및 효소 섹션 */}
             {((m.kegg_pathways && m.kegg_pathways.length > 0) || (m.kegg_enzymes && m.kegg_enzymes.length > 0)) && (
               <View style={styles.section}>
-                <Text style={[styles.gridLabel, { color: '#2D5016', fontWeight: 'bold' }]}>
-                  §2-C 대사 경로 및 효소 (KEGG)
+                <Text style={[styles.gridLabel, { color: '#2D5016', fontWeight: 'bold', marginBottom: 4 }]}>
+                  §2-C 효소 처리 가능성 (KEGG)
                 </Text>
+                <View style={{ backgroundColor: '#F8F9FA', padding: 8, borderRadius: 4, marginBottom: 8, border: '1px solid #E9ECEF' }}>
+                  <Text style={{ fontSize: 9, color: '#444' }}>이 소재의 주요 성분에 작용하는 효소 정보입니다. 효소 처리를 통한 성분 전환 및 효능 강화 실험 설계에 참고할 수 있습니다.</Text>
+                </View>
                 <View style={styles.bulletList}>
-                  {m.kegg_pathways && m.kegg_pathways.length > 0 && (
-                    <View style={styles.bulletItem}>
-                      <Text style={styles.bulletDot}>-</Text>
-                      <Text style={styles.bulletText}>
-                        대사 경로: {m.kegg_pathways.length > 1
-                          ? `${m.kegg_pathways[0].name} 외 ${m.kegg_pathways.length - 1}개`
-                          : m.kegg_pathways[0].name}
-                      </Text>
-                    </View>
-                  )}
                   {m.kegg_enzymes && m.kegg_enzymes.length > 0 && (
                     <View style={styles.bulletItem}>
                       <Text style={styles.bulletDot}>-</Text>
                       <Text style={styles.bulletText}>
-                        관련 효소: EC {m.kegg_enzymes[0].id} ({m.kegg_enzymes[0].name}){m.kegg_enzymes.length > 1 ? ` 외 ${m.kegg_enzymes.length - 1}개` : ''}
+                        관련 효소: {m.kegg_enzymes[0].name} (EC {m.kegg_enzymes[0].id}){m.kegg_enzymes.length > 1 ? ` 외 ${m.kegg_enzymes.length - 1}개` : ''}
+                      </Text>
+                    </View>
+                  )}
+                  {m.kegg_pathways && m.kegg_pathways.length > 0 && (
+                    <View style={styles.bulletItem}>
+                      <Text style={styles.bulletDot}>-</Text>
+                      <Text style={styles.bulletText}>
+                        대사 경로: {m.kegg_pathways[0].name}{m.kegg_pathways.length > 1 ? ` 외 ${m.kegg_pathways.length - 1}개` : ''}
                       </Text>
                     </View>
                   )}
                   <View style={styles.bulletItem}>
                     <Text style={styles.bulletDot}>-</Text>
                     <Text style={[styles.bulletText, { color: '#78716C' }]}>
-                      출처: KEGG Database
+                      출처: KEGG Database (genome.jp)
                     </Text>
                   </View>
                 </View>
               </View>
             )}
+
+            {/* §5 분양 가능 여부 및 확보 방법 */}
+            {(() => {
+              const rawData = typeof (m as any).raw_data === 'string' 
+                ? (() => { try { return JSON.parse((m as any).raw_data); } catch { return {}; } })()
+                : ((m as any).raw_data || {});
+              const idNumber = rawData['식별번호'];
+
+              if (m.data_source === '산림바이오소재' && idNumber) {
+                return (
+                  <View style={styles.section}>
+                    <Text style={[styles.gridLabel, { color: '#2D5016', fontWeight: 'bold' }]}>
+                      §5 분양 가능 여부 및 확보 방법
+                    </Text>
+                    <View style={styles.bulletList}>
+                      <View style={styles.bulletItem}>
+                        <Text style={styles.bulletDot}>✓</Text>
+                        <Text style={[styles.bulletText, { color: '#1D9E75', fontWeight: 'bold' }]}>
+                          분양 가능
+                        </Text>
+                      </View>
+                      <View style={styles.bulletItem}>
+                        <Text style={styles.bulletDot}>-</Text>
+                        <Text style={styles.bulletText}>
+                          식별번호: {idNumber}
+                        </Text>
+                      </View>
+                      <View style={styles.bulletItem}>
+                        <Text style={styles.bulletDot}>-</Text>
+                        <Text style={styles.bulletText}>
+                          신청 자격: 산림청장에게 분양신청서 제출 후 승인 시 누구나 신청 가능 (승인까지 약 14일 소요)
+                        </Text>
+                      </View>
+                      <View style={styles.bulletItem}>
+                        <Text style={styles.bulletDot}>-</Text>
+                        <Text style={styles.bulletText}>
+                          신청 절차:
+                        </Text>
+                      </View>
+                      <View style={{ paddingLeft: 12, marginTop: 2 }}>
+                        <Text style={[styles.bulletText, { color: '#78716C' }]}>① 분양신청서 작성 (농업(산림)생명자원 분양신청서 별지 제1호 서식)</Text>
+                        <Text style={[styles.bulletText, { color: '#78716C' }]}>② 분양신청목록 제출 (별지 제1-1호 서식)</Text>
+                        <Text style={[styles.bulletText, { color: '#78716C' }]}>③ 산림청장 승인 (14일 이내)</Text>
+                        <Text style={[styles.bulletText, { color: '#78716C' }]}>④ 분양계약서 작성 후 소재 수령</Text>
+                      </View>
+                      <View style={[styles.bulletItem, { marginTop: 6 }]}>
+                        <Text style={styles.bulletDot}>-</Text>
+                        <Text style={[styles.bulletText, { color: '#78716C' }]}>출처: 농업생명자원 보존·관리 및 이용에 관한 법률 제8조 제1항 기준</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              } else {
+                return (
+                  <View style={styles.section}>
+                    <Text style={[styles.gridLabel, { color: '#2D5016', fontWeight: 'bold' }]}>
+                      §5 분양 가능 여부 및 확보 방법
+                    </Text>
+                    <View style={styles.bulletList}>
+                      <View style={styles.bulletItem}>
+                        <Text style={styles.bulletDot}>―</Text>
+                        <Text style={styles.bulletText}>직접 분양 코드 미포함 소재</Text>
+                      </View>
+                      <View style={[styles.bulletItem, { marginTop: 4 }]}>
+                        <Text style={styles.bulletDot}>-</Text>
+                        <Text style={styles.bulletText}>소재 확보 방법 2가지:</Text>
+                      </View>
+                      <View style={{ paddingLeft: 12, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <View style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <Text style={[styles.bulletText, { color: '#44403C', fontWeight: 'bold' }]}>1. NIFoS 산림바이오소재은행 검색</Text>
+                          <Text style={[styles.bulletText, { color: '#78716C', paddingLeft: 8 }]}>동일 식물명 또는 학명으로 검색 후 분양 신청 가능 (승인까지 약 14일)</Text>
+                          <Text style={[styles.bulletText, { color: '#78716C', paddingLeft: 8 }]}>→ nifos.go.kr</Text>
+                          <Text style={[styles.bulletText, { color: '#085041', paddingLeft: 8, fontWeight: 'bold' }]}>검색어: {m.species || m.scientific_name || m.name_ko || '알 수 없음'}</Text>
+                        </View>
+                        <View style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <Text style={[styles.bulletText, { color: '#44403C', fontWeight: 'bold' }]}>2. 국내 천연물 원료 공급사 구매</Text>
+                          <Text style={[styles.bulletText, { color: '#78716C', paddingLeft: 8 }]}>한국생약협회 회원사 또는 국내 식물 추출물 공급사를 통해 원료 구매 가능</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                );
+              }
+            })()}
 
             {/* 내부 검토 템플릿용 코멘트 란 */}
             {template === 'internal' && (

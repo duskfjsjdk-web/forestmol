@@ -5,6 +5,7 @@
 export interface AiResult {
   effect_summary: string;
   cosmetic_interpretation: string;
+  material_kegg_interpretations?: Record<string, string>;
   timeline: Array<{ period: string; action: string; desc: string }>;
 }
 
@@ -17,12 +18,14 @@ interface MaterialData {
   data_source: string;
   source_org: string;
   region?: string;
+  distribution?: string | null;
   bioactivity?: string[] | string | null;
   compounds?: Array<{ cas?: string; name?: string; formula?: string; category?: string; source?: string }> | string | null;
   patent_count?: number;
-  patents?: any[] | string | null;
   raw_data?: any;
+  usage_method?: string | null;
   cosmetic_allowed?: boolean | null;
+  cosmetic_matched_ingredients?: any[] | null;
   kegg_id?: string | null;
   kegg_pathways?: Array<{ id: string; name: string }> | null;
   kegg_enzymes?: Array<{ id: string; name: string }> | null;
@@ -70,59 +73,142 @@ export function generateReportHtml(
     // 1. raw_data 파싱
     let rawObj: any = {};
     if (m.raw_data) {
-      if (typeof m.raw_data === 'object') {
-        rawObj = m.raw_data;
-      } else {
+      if (typeof m.raw_data === 'string') {
         try {
           rawObj = JSON.parse(m.raw_data);
+          if (typeof rawObj === 'string') rawObj = JSON.parse(rawObj);
         } catch {}
-      }
-    }
-
-    const extractionPart = rawObj['추출부위'] || rawObj['부위'] || rawObj['채취부위'] || rawObj['extraction_part'] || null;
-    const distributionCode = rawObj['식별번호'] || rawObj['분양코드'] || rawObj['분양번호'] || rawObj['accession_no'] || rawObj['distribution_code'] || null;
-
-    // 2. bioactivity 파싱 및 키워드 태그 추출
-    let bioList: string[] = [];
-    const isBioactivityNull = m.bioactivity === null || m.bioactivity === undefined || m.bioactivity === '';
-    
-    if (m.bioactivity) {
-      if (Array.isArray(m.bioactivity)) {
-        bioList = m.bioactivity;
       } else {
-        try {
-          const parsed = JSON.parse(m.bioactivity);
-          bioList = Array.isArray(parsed) ? parsed : [String(m.bioactivity)];
-        } catch {
-          bioList = String(m.bioactivity).split(',').map(s => s.trim());
-        }
+        rawObj = m.raw_data;
       }
     }
+    if (Array.isArray(rawObj) && rawObj.length > 0) {
+      rawObj = rawObj[0];
+    } else if (Array.isArray(rawObj) && rawObj.length === 0) {
+      rawObj = {};
+    }
 
-    const coreKeywords = Array.from(new Set(
-      bioList
-        .map(b => extractBioactivityKeyword(b))
-        .map(k => k.trim())
-        .filter(k => {
-          if (!k) return false;
-          if (k === ':' || k === ';') return false;
-          if (k.length >= 10) return false;
-          return true;
-        })
-    ));
+    // 데이터 소스별 추출 조건 파싱
+    let extractionPart: string | null = null;
+    let extractionSolvent: string | null = null;
+    let extractionMethod: string | null = null;
+    let harvestMethod: string | null = null; // 약용식물 전용 채취 방법
+
+    const ds = (m.data_source || '').toLowerCase();
+
+    if (ds.includes('바이오소재')) {
+      // 산림바이오소재: raw_data 필드에서 파싱
+      extractionPart   = rawObj?.['추출부위'] || rawObj?.['부위'] || rawObj?.['채취부위'] || null;
+      extractionSolvent = rawObj?.['추출용매'] || rawObj?.['용매'] || null;
+      extractionMethod  = rawObj?.['추출방법'] || rawObj?.['추출 방법'] || null;
+    } else if (ds.includes('약용식물')) {
+      // 산림청_약용식물: bioactivity[1]을 채취 방법으로 표시
+      const bioArr = Array.isArray(m.bioactivity) ? m.bioactivity as string[]
+        : (m.bioactivity ? [String(m.bioactivity)] : []);
+      if (bioArr.length >= 2 && bioArr[1]) {
+        harvestMethod = String(bioArr[1]).trim();
+      }
+    }
+    // 식물정유은행: 추출 조건 데이터 없음 → 모두 null 유지
+
+    const distributionCode = rawObj?.['식별번호'] || rawObj?.['분양코드'] || rawObj?.['분양번호'] || rawObj?.['accession_no'] || rawObj?.['distribution_code'] || null;
+
+    // 자생지 우선순위 파싱: distribution 컨럼 → raw_data 약용식물분포설명 → null
+    const distributionText: string | null =
+      (m.distribution && m.distribution.trim()) ||
+      rawObj['약용식물분포설명'] ||
+      rawObj['분포'] ||
+      rawObj['distribution'] ||
+      m.region ||
+      null;
+
+    // 데이터 소스별 효능 파싱 (Section 1 용도)
+    let sec1Tags: string[] = [];
+    const COSMETIC_KEYWORDS = [
+      // 기존
+      '항균', '항산화', '항염', '항노화', '항암',
+      '미백', '보습', '주름', '피부', '진정',
+      '탄력', '두피', '모발', '발모', '살균',
+      '항진균', '항바이러스', '소염', '면역',
+      '윤택', '윤기', '항알레르기',
+
+      // 추가 — 피부·모발 관련
+      '양모', '육모', '피부윤택', '피부미용',
+      '보윤', '수렴', '각질', '재생',
+
+      // 추가 — 항염·진통 관련
+      '진통', '소종', '해독', '청열',
+      '냉증', '혈액순환', '혈행',
+
+      // 추가 — 강장·활력 관련
+      '강장', '자양', '강정', '피로',
+      '활력', '원기',
+
+      // 추가 — 보습·수분 관련
+      '윤장', '윤폐', '건조',
+
+      // 추가 — 향장품 관련
+      '방부', '방향', '탈취', '자외선',
+      '광노화', '콜라겐', '엘라스틴'
+    ];
+
+    const BLACKLIST_KEYWORDS = [
+      '중풍', '골절', '폐결핵', '치매', '정력', '척추', '심장염', '가슴막염', '칠독',
+      '거풍', '조습', '강직성', '야맹증', '양모발약', '위경련', '연골', '이명',
+      '임신중독', '조해', '종독', '종창', '토혈', '풍비', '허약체질', '화상',
+      '간질', '두현', '신허', '양음', '오로보호', '윤장', '윤폐'
+    ];
+
+    const SOLVENT_KEYWORDS = [
+      'Ethyl Acetate', 'EA', 'EtOH', 'MeOH', 'Hexane', 'BuOH', 'Water', 
+      'Residue', 'Fraction', '분획', '추출', '용매'
+    ];
+
+    if (ds.includes('약용식물') || ds.includes('바이오소재')) {
+      const bioArr = Array.isArray(m.bioactivity) ? m.bioactivity as string[] : (m.bioactivity ? [String(m.bioactivity)] : []);
+      if (bioArr.length > 0 && bioArr[0]) {
+        sec1Tags = bioArr[0]
+          .split(',')
+          .map(s => s.trim().replace(/\s*등$/, ''))
+          .filter(t => t.length > 1 && t.length < 25 && !t.includes('http') && !t.match(/\d{4}/))
+          .filter(t => {
+            const hasSolvent = SOLVENT_KEYWORDS.some(kw => t.toLowerCase().includes(kw.toLowerCase()));
+            const hasBlacklist = BLACKLIST_KEYWORDS.some(kw => t.includes(kw));
+            const isCosmetic = COSMETIC_KEYWORDS.some(kw => t.includes(kw) || t.startsWith(kw));
+            return !hasSolvent && !hasBlacklist && isCosmetic;
+          });
+      }
+    } else if (ds.includes('정유은행')) {
+      if (m.usage_method) {
+        const keywords = m.usage_method
+          .split('■')
+          .map(s => s.trim())
+          .map(s => s.split(/[\s(,]/)[0].trim())
+          .filter(t => t.length > 1 && COSMETIC_KEYWORDS.some(kw => t.startsWith(kw)));
+        sec1Tags = Array.from(new Set(keywords));
+      }
+    }
 
     // 커버 헤더 태그 구성 (효능 태그 앞 3개 + 지역 + 출처기관)
-    const headerTags = [...coreKeywords.slice(0, 3)];
+    const headerTags = [...sec1Tags.slice(0, 3)];
     if (m.region) headerTags.push(m.region.split(/[\s,]+/)[0]);
     headerTags.push(m.source_org ? m.source_org.split(' ')[0] : '공공데이터');
 
     // §2 효능 태그 HTML
     let bioTagsHtml = '';
-    const hasBioactivity = !isBioactivityNull && coreKeywords.length > 0;
+    const hasBioactivity = sec1Tags.length > 0;
     if (hasBioactivity) {
+      const displayTags = sec1Tags.slice(0, 8);
+      const extraCount = sec1Tags.length - 8;
+      
+      let tagsHtml = displayTags.map(keyword => `<span class="tag" style="background:#E1F5EE; color:#085041; border:0.5px solid #9FE1CB; padding: 4px 10px; border-radius: 6px; font-weight: 500; font-size: 12px;">${keyword}</span>`).join('');
+      if (extraCount > 0) {
+        tagsHtml += `<span class="tag" style="background:#F5F5F4; color:#78716C; border:0.5px solid #E7E5E4; padding: 4px 10px; border-radius: 6px; font-weight: 500; font-size: 12px;">+${extraCount}개</span>`;
+      }
+      
       bioTagsHtml = `
         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px 0;">
-          ${coreKeywords.map(keyword => `<span class="tag" style="background:#E1F5EE; color:#085041; border:0.5px solid #9FE1CB; padding: 4px 10px; border-radius: 6px; font-weight: 500; font-size: 12px;">${keyword}</span>`).join('')}
+          ${tagsHtml}
         </div>
       `;
     }
@@ -232,72 +318,89 @@ export function generateReportHtml(
     const hasEnzymes = Array.isArray(m.kegg_enzymes) && m.kegg_enzymes.length > 0;
 
     if (hasPathways || hasEnzymes) {
-      let pathwaysHtml = '정보 없음';
+      let pathwaysText = '정보 없음';
       if (hasPathways && m.kegg_pathways) {
-        const displayPathways = m.kegg_pathways.slice(0, 5);
-        const extraPathways = m.kegg_pathways.length - 5;
-        
-        pathwaysHtml = `
-          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            ${displayPathways.map(p => `
-              <a href="https://www.genome.jp/entry/${p.id || ''}" target="_blank" class="tag tag-purple" style="text-decoration: none; font-size: 11px; padding: 2px 8px;">
-                ${p.name}
-              </a>
-            `).join('')}
-            ${extraPathways > 0 ? `<span style="font-size:11px; color:var(--color-text-tertiary); align-self: center;">외 ${extraPathways}개</span>` : ''}
-          </div>
-        `;
+        pathwaysText = m.kegg_pathways.length > 1
+          ? `${m.kegg_pathways[0].name} 외 ${m.kegg_pathways.length - 1}개`
+          : m.kegg_pathways[0].name;
       }
 
-      let enzymesHtml = '정보 없음';
+      let enzymesText = '정보 없음';
       if (hasEnzymes && m.kegg_enzymes) {
-        const displayEnzymes = m.kegg_enzymes.slice(0, 5);
-        enzymesHtml = `
-          <ul style="list-style: none; padding-left: 0; font-size: 12px; line-height: 1.6;">
-            ${displayEnzymes.map(e => `
-              <li style="color: var(--color-text-secondary); margin-bottom: 2px;">
-                • ${e.name} ${e.id ? `(EC ${e.id})` : ''}
-              </li>
-            `).join('')}
-          </ul>
-        `;
+        enzymesText = m.kegg_enzymes.length > 1
+          ? `${m.kegg_enzymes[0].name} (EC ${m.kegg_enzymes[0].id}) 외 ${m.kegg_enzymes.length - 1}개`
+          : `${m.kegg_enzymes[0].name} (EC ${m.kegg_enzymes[0].id})`;
       }
+
+      const mName = m.name_ko || m.name || '';
+      const interpretationText = aiResult?.material_kegg_interpretations?.[mName] 
+        || "효소 처리 실험 설계 참고용으로 활용할 수 있습니다.";
 
       keggSectionHtml = `
-        <!-- §2-C 대사 경로 및 효소 (KEGG) -->
+        <!-- §2-C 효소 처리 가능성 (KEGG) -->
         <div class="sec">
           <div class="sec-head">
             <div class="sec-num n2" style="font-size: 10px; font-weight: bold; background: #EEEDFE; color: #3C3489;">2-C</div>
-            <div class="sec-title">대사 경로 및 효소 (KEGG)</div>
+            <div class="sec-title">효소 처리 가능성 (KEGG)</div>
             <span class="sec-badge tag-purple">생물학 활성 데이터</span>
           </div>
+          
+          <div style="font-size: 11.5px; color: var(--color-text-primary); font-weight: 500; margin-bottom: 14px; line-height: 1.6; padding: 12px; background-color: #F8F9FA; border-radius: 6px; border: 1px solid #E9ECEF;">
+            <span style="color: #6366F1; font-weight: 800; font-size: 10px; margin-bottom: 4px; display: inline-block;">✨ AI Analysis</span><br/>
+            ${interpretationText}
+          </div>
+
           <div class="kv">
-            <span class="kv-label">대사 경로</span>
-            <span class="kv-val">${pathwaysHtml}</span>
             <span class="kv-label">관련 효소</span>
-            <span class="kv-val">${enzymesHtml}</span>
-            <span class="kv-label">출처</span>
-            <span class="kv-val" style="color:var(--color-text-tertiary); font-size:11.5px;">KEGG Database (genome.jp)</span>
+            <span class="kv-val" style="font-weight: 500; color: var(--color-text-primary);">${enzymesText}</span>
+            <span class="kv-label">대사 경로</span>
+            <span class="kv-val" style="font-weight: 500; color: var(--color-text-primary);">${pathwaysText}</span>
+          </div>
+          
+          <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed #E5E7EB; font-size: 10.5px; color: #854D0E; line-height: 1.5;">
+            ⚠ 본 해석은 KEGG DB 기반 AI 생성 참고 정보이며 실험적 검증이 필요합니다.<br/>
+            <span style="color:var(--color-text-tertiary); font-size:10px;">출처: KEGG Database (genome.jp)</span>
           </div>
         </div>
       `;
     }
 
-    // 4. 특허 현황 (KIPRIS) 렌더링
-    const totalPatents = m.patent_count || 0;
-    const safetyBadge = totalPatents > 0
-      ? '<span class="sec-badge tag-purple" style="background:#FAEEDA;color:#633806;border:0.5px solid #FAC775">✕ 특허 존재 (권리 범위 확인 권장)</span>'
-      : '<span class="sec-badge tag" style="background:#E1F5EE;color:#085041;border:0.5px solid #9FE1CB">✓ 안전 (선행특허 없음)</span>';
 
-    // 5. 식약처 화장품 원료 적합성 카드 분기 (단일 카드 구조)
     let cosmeticCardHtml = '';
     if (m.cosmetic_allowed === true) {
+      let matchedRows = '';
+      if (m.cosmetic_matched_ingredients && Array.isArray(m.cosmetic_matched_ingredients) && m.cosmetic_matched_ingredients.length > 0) {
+        const displayIngredients = m.cosmetic_matched_ingredients.slice(0, 5);
+        matchedRows = displayIngredients.map(ing => `
+          <tr>
+            <td style="font-weight: 500; color: var(--color-text-primary);">${ing.ingr_kor_name || '-'}</td>
+            <td style="color:var(--color-text-tertiary); font-size:11px;">${ing.ingr_eng_name || '-'}</td>
+            <td style="color:var(--color-text-tertiary); font-family:var(--font-mono); font-size:11px;">${ing.cas_no || '-'}</td>
+          </tr>
+        `).join('');
+      }
+
       cosmeticCardHtml = `
         <div class="reg-card reg-ok" style="margin-top: 8px;">
           <div class="reg-title" style="font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
             <span>✓ 식약처 원료성분 등록 확인</span>
           </div>
           <div class="reg-body" style="margin-top: 6px; font-size: 12px; line-height: 1.6;">식약처 화장품 원료성분 목록에 등록된 원료입니다.</div>
+          ${matchedRows ? `
+          <table class="tbl" style="margin-top: 10px; background: white; border-color: #9FE1CB;">
+            <thead>
+              <tr>
+                <th style="width: 35%; background: #E1F5EE; border-color: #9FE1CB; color: #085041;">성분명(한글)</th>
+                <th style="width: 40%; background: #E1F5EE; border-color: #9FE1CB; color: #085041;">성분명(영문)</th>
+                <th style="width: 25%; background: #E1F5EE; border-color: #9FE1CB; color: #085041;">CAS No</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${matchedRows}
+            </tbody>
+          </table>
+          <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 6px;">출처: 식약처 화장품 원료성분 정보 (data.go.kr)</div>
+          ` : ''}
         </div>
       `;
     } else if (m.cosmetic_allowed === false) {
@@ -333,26 +436,43 @@ export function generateReportHtml(
             <span class="kv-label">분양 코드</span><span class="kv-val" style="font-family:var(--font-mono);font-size:12px;font-weight:bold;color:#085041;">${distributionCode}</span>
             <span class="kv-label">소재 형태</span><span class="kv-val">${extractionPart || '식물체'} 정밀 추출물 (에탄올/정제수 분획물)</span>
             <span class="kv-label">신청 기관</span><span class="kv-val">${m.source_org || '국립산림과학원 산림바이오소재연구소'}</span>
-            <span class="kv-label">신청 자격</span><span class="kv-val">화장품 ODM 기업 R&D팀, 대학 연구소 및 국공립 기관</span>
+            <span class="kv-label">신청 자격</span><span class="kv-val">산림청장에게 분양신청서 제출 후 승인 시 누구나 신청 가능 (승인까지 약 14일 소요)</span>
           </div>
-          <div style="font-size:11.5px;color:var(--color-text-secondary);margin:12px 0 4px;font-weight:500">신청 절차</div>
-          <div class="step-row">
-            <div class="step-box">① 회원가입</div>
+          <div style="font-size:11.5px;color:var(--color-text-secondary);margin:12px 0 4px;font-weight:500;display:flex;justify-content:space-between;align-items:flex-end;">
+            <span>신청 절차</span>
+            <span style="font-size:9px;color:#A8A29E;font-weight:normal;letter-spacing:-0.2px;">농업생명자원 보존·관리 및 이용에 관한 법률 제8조 제1항 기준</span>
+          </div>
+          <div class="step-row" style="align-items:stretch;">
+            <div class="step-box" style="flex:1;line-height:1.4;">① 분양신청서 작성<br/><span style="font-size:9px;color:#78716C;font-weight:normal;letter-spacing:-0.3px;">(농업(산림)생명자원 분양신청서 별지 제1호 서식)</span></div>
             <div class="step-arr">→</div>
-            <div class="step-box">② 분양 신청서 작성</div>
+            <div class="step-box" style="flex:1;line-height:1.4;">② 분양신청목록 제출<br/><span style="font-size:9px;color:#78716C;font-weight:normal;">(별지 제1-1호 서식)</span></div>
             <div class="step-arr">→</div>
-            <div class="step-box">③ 사용 목적서 제출</div>
+            <div class="step-box" style="flex:1;line-height:1.4;">③ 산림청장 승인<br/><span style="font-size:9px;color:#78716C;font-weight:normal;">(14일 이내)</span></div>
             <div class="step-arr">→</div>
-            <div class="step-box last">④ 소재 수령 (택배)</div>
+            <div class="step-box last" style="flex:1;line-height:1.4;">④ 분양계약서 작성 후<br/><span style="font-size:9px;color:#78716C;font-weight:normal;">소재 수령</span></div>
           </div>
         </div>
       `;
     } else {
+      const speciesName = m.species || m.scientific_name || m.name_ko || '알 수 없음';
       distributionHtml = `
         <div class="distrib-wrap">
-          <div class="distrib-status">
-            <div class="status-dot" style="background:#78716C"></div>
-            <div class="status-label">분양 코드 정보 없음. NIFoS에 직접 문의.</div>
+          <div class="distrib-status" style="background:#F5F5F4;border-color:#E7E5E4;">
+            <div class="status-label" style="color:#57534E;font-weight:bold;">― 직접 분양 코드 미포함 소재</div>
+          </div>
+          <div style="font-size:12px;color:var(--color-text-secondary);margin:12px 0 8px;font-weight:bold">소재 확보 방법 2가지:</div>
+          
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="background:#FAFAFA;border:1px solid #E7E5E4;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:4px;">
+              <div style="font-size:12px;font-weight:bold;color:#44403C;">1. NIFoS 산림바이오소재은행 검색</div>
+              <div style="font-size:11px;color:#78716C;line-height:1.5;">동일 식물명 또는 학명으로 검색 후 분양 신청 가능 (승인까지 약 14일)<br/>→ nifos.go.kr</div>
+              <div style="font-size:11px;color:#085041;font-weight:bold;margin-top:2px;background:#E1F5EE;align-self:flex-start;padding:3px 8px;border-radius:6px;border:1px solid #9FE1CB;">검색어: ${speciesName}</div>
+            </div>
+            
+            <div style="background:#FAFAFA;border:1px solid #E7E5E4;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:4px;">
+              <div style="font-size:12px;font-weight:bold;color:#44403C;">2. 국내 천연물 원료 공급사 구매</div>
+              <div style="font-size:11px;color:#78716C;line-height:1.5;">한국생약협회 회원사 또는 국내 식물 추출물 공급사를 통해 원료 구매 가능</div>
+            </div>
           </div>
         </div>
       `;
@@ -421,9 +541,12 @@ export function generateReportHtml(
           <div class="kv">
             <span class="kv-label">국문명</span><span class="kv-val">${m.name_ko}</span>
             <span class="kv-label">학명</span><span class="kv-val"><i>${m.species}</i></span>
-            <span class="kv-label">주요 자생지</span><span class="kv-val">${m.region || '정보 없음'}</span>
+            ${distributionText ? `<span class="kv-label">주요 자생지</span><span class="kv-val">${distributionText}</span>` : ''}
             <span class="kv-label">출처기관</span><span class="kv-val">${m.source_org || m.data_source || '정보 없음'}</span>
             ${extractionPart ? `<span class="kv-label">추출 부위</span><span class="kv-val">${extractionPart}</span>` : ''}
+            ${extractionSolvent ? `<span class="kv-label">추출 용매</span><span class="kv-val">${extractionSolvent}</span>` : ''}
+            ${extractionMethod ? `<span class="kv-label">추출 방법</span><span class="kv-val">${extractionMethod}</span>` : ''}
+            ${harvestMethod ? `<span class="kv-label">채취 방법</span><span class="kv-val" style="font-size:11px;line-height:1.6;">${harvestMethod}</span>` : ''}
             ${distributionCode ? `<span class="kv-label">분양 코드</span><span class="kv-val">${distributionCode}</span>` : ''}
             <span class="kv-label">대표 구조식</span>
             <span class="kv-val">
@@ -436,6 +559,12 @@ export function generateReportHtml(
               }
             </span>
           </div>
+          ${sec1Tags.length > 0 ? `
+          <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 11px; font-weight: 600; color: var(--color-text-secondary); margin-right: 4px;">확인된 효능</span>
+            ${sec1Tags.map(tag => `<span style="background: #E1F5EE; color: #085041; border-radius: 100px; padding: 4px 10px; font-size: 10pt; font-weight: 500;">${tag}</span>`).join('')}
+          </div>
+          ` : ''}
         </div>
 
         <!-- [§2 생물활성 데이터] (효능 태그 렌더링으로 전면 교체) -->
@@ -458,20 +587,34 @@ export function generateReportHtml(
         <!-- [§2-C 대사 경로 및 효소] (동적 삽입) -->
         ${keggSectionHtml}
 
-        <!-- [§3 특허 현황] (건수 카드 1개로 단순화) -->
+        <!-- [§3 특허 현황] -->
         <div class="sec">
           <div class="sec-head">
             <div class="sec-num n3">3</div>
             <div class="sec-title">특허 현황 (KIPRIS)</div>
-            ${safetyBadge}
+            ${m.patent_count === null
+              ? '<span class="sec-badge" style="background:#F5F5F4;color:#78716C;border:0.5px solid #E7E5E4">연동 준비 중</span>'
+              : (m.patent_count > 0
+                  ? '<span class="sec-badge tag-purple" style="background:#FAEEDA;color:#633806;border:0.5px solid #FAC775">✕ 특허 존재 (권리 범위 확인 권장)</span>'
+                  : '<span class="sec-badge tag" style="background:#E1F5EE;color:#085041;border:0.5px solid #9FE1CB">✓ 안전 (선행특허 없음)</span>')
+            }
           </div>
+          ${m.patent_count === null ? `
+          <div style="padding: 14px 16px; background: #FAF7F0; border: 0.5px solid #E7E5E4; border-radius: 8px; font-size: 12px; color: #78716C; line-height: 1.7;">
+            KIPRIS API 연동 준비 중입니다.<br/>
+            소재명 <b>${m.name_ko}</b>으로
+            <a href="https://www.kipris.or.kr/khome/main.do" style="color:#2D5016;text-decoration:underline;">kipris.or.kr</a>
+            에서 직접 검색하시기 바랍니다.
+          </div>
+          ` : `
           <div class="patent-row">
             <div class="patent-card" style="text-align: left; padding: 12px 16px; background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: 6px; display: inline-block; min-width: 200px;">
               <div class="patent-label" style="font-size: 11.5px; color: var(--color-text-tertiary);">KIPRIS 특허 조회 결과</div>
-              <div class="patent-num" style="font-size: 22px; font-weight: 700; color: var(--color-text-primary); margin-top: 4px;">KIPRIS 조회 결과: ${totalPatents}건</div>
+              <div class="patent-num" style="font-size: 22px; font-weight: 700; color: var(--color-text-primary); margin-top: 4px;">총 ${m.patent_count}건</div>
             </div>
           </div>
-          <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">KIPRIS 조회 기준: 실시간 API · 검색어: ${m.name_ko} + 화장품</div>
+          <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">KIPRIS 조회 기준: 실시간 API · 검색어: ${m.name_ko}</div>
+          `}
         </div>
 
         <!-- [§4 화장품 원료 적합성] (cosmetic_allowed 단일 카드 노출) -->

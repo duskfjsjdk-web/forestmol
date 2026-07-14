@@ -6,6 +6,12 @@ import { type Material } from './MaterialCard';
 import { toggleBookmark, checkBookmarked } from '@/app/actions/bookmark';
 import { getProjects, createProject, addMaterialToProject } from '@/app/actions/project';
 import { parseBioactivityTags, parseBioactivityDetail } from '@/utils/parseBioactivity';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 interface MaterialSlideOverProps {
   material: Material | null;
@@ -18,12 +24,17 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [patentCount, setPatentCount] = useState<number | null>(null);
   const [patentLoading, setPatentLoading] = useState(true);
+  const [showAllIngredients, setShowAllIngredients] = useState(false);
   const [patentStatus, setPatentStatus] = useState<string | null>(null);
   const [showAllCompounds, setShowAllCompounds] = useState(false);
   const [showAllPathways, setShowAllPathways] = useState(false);
   const [showAllEnzymes, setShowAllEnzymes] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const [showRawBio, setShowRawBio] = useState(false);
+  const [rawData, setRawData] = useState<any>(null); // raw_data 보조 상태 (RPC 미반환 시 추가 조회)
+  const [fetchedDistribution, setFetchedDistribution] = useState<string | null>(null); // distribution 보조 상태
+  const [keggInterpretation, setKeggInterpretation] = useState<string | null>(null);
+  const [keggLoading, setKeggLoading] = useState(false);
 
   // 프로젝트 기능용 상태
   const [projects, setProjects] = useState<any[]>([]);
@@ -55,9 +66,13 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
     setShowAllCompounds(false);
     setShowAllPathways(false);
     setShowAllEnzymes(false);
+    setShowAllIngredients(false);
     setShowDropdown(false);
     setShowModal(false);
     setShowRawBio(false);
+    setRawData(null); // raw_data 초기화
+    setFetchedDistribution(null);
+    setKeggInterpretation(null);
 
     let active = true;
 
@@ -102,8 +117,51 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       }
     };
 
+    // 3. raw_data / distribution 추가 조회 (RPC 반환값에 없을 때)
+    const fetchExtraData = async () => {
+      if ((material as any).raw_data !== undefined && (material as any).distribution !== undefined) return; 
+      try {
+        const { data } = await supabaseClient
+          .from('materials')
+          .select('raw_data, distribution')
+          .eq('id', material.id)
+          .single();
+        if (active && data) {
+          if ((material as any).raw_data === undefined) setRawData(data.raw_data);
+          if ((material as any).distribution === undefined) setFetchedDistribution(data.distribution);
+        }
+      } catch {}
+    };
+
+    // 4. KEGG AI 해석 추가 조회
+    const fetchKeggAI = async () => {
+      if ((material.kegg_pathways && material.kegg_pathways.length > 0) || (material.kegg_enzymes && material.kegg_enzymes.length > 0)) {
+        setKeggLoading(true);
+        try {
+          const res = await fetch('/api/ai/kegg', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: material.name_ko || material.name,
+              compounds: material.compounds,
+              kegg_pathways: material.kegg_pathways,
+              kegg_enzymes: material.kegg_enzymes
+            })
+          });
+          const data = await res.json();
+          if (active) setKeggInterpretation(data.interpretation);
+        } catch (e) {
+          if (active) setKeggInterpretation("효소 처리 실험 설계 참고용으로 활용할 수 있습니다.");
+        } finally {
+          if (active) setKeggLoading(false);
+        }
+      }
+    };
+
     checkBookmarkStatus();
     fetchPatent();
+    fetchExtraData();
+    fetchKeggAI();
 
     return () => {
       active = false;
@@ -122,8 +180,21 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
     : null;
 
   // 1. 생리활성 효능 가공 및 태그 추출
-  const rawBio = material.display_bioactivity || '';
-  const bioactivityTags = parseBioactivityTags(rawBio);
+  const rawBio = (() => {
+    const m = material as any;
+    if (Array.isArray(m.bioactivity) && m.bioactivity.length > 0) {
+      return String(m.bioactivity[0]);
+    } else if (m.display_bioactivity) {
+      return String(m.display_bioactivity);
+    } else if (m.usage_method) {
+      return m.usage_method
+        .split('■')
+        .map((s: string) => s.trim().split(/[\s(,]/)[0].trim())
+        .filter((t: string) => t.length > 0)
+        .join(',');
+    }
+    return '';
+  })();
 
   const compoundsList = material.compounds || [];
   const uniqueCompounds = compoundsList.reduce(
@@ -138,6 +209,56 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
   const displayCompounds = showAllCompounds ? uniqueCompounds : uniqueCompounds.slice(0, 10);
   const hasMoreCompounds = uniqueCompounds.length > 10;
+
+  // raw_data 파싱 → 추출 조건 추출 (prop에 없으면 추가 조회된 rawData 상태 사용)
+  const rawDataObj: any = (() => {
+    const rd = (material as any).raw_data !== undefined
+      ? (material as any).raw_data
+      : rawData;
+    if (!rd) return {};
+    
+    let parsed = rd;
+    if (typeof rd === 'string') {
+      try {
+        parsed = JSON.parse(rd);
+        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+      } catch {}
+    }
+    
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed[0];
+    } else if (Array.isArray(parsed) && parsed.length === 0) {
+      return {};
+    }
+    return parsed;
+  })();
+  // 데이터 소스별 추출 조건 파싱
+  const matDataSource = ((material as any).data_source || '').toLowerCase();
+  
+  const bioactivityTags = parseBioactivityTags(rawBio);
+
+  let extractionPart: string | null = null;
+  let extractionSolvent: string | null = null;
+  let extractionMethod: string | null = null;
+  let harvestMethod: string | null = null;
+
+  if (matDataSource.includes('바이오소재')) {
+    // 산림바이오소재: raw_data 필드에서 파싱
+    extractionPart   = rawDataObj['추출부위'] || rawDataObj['부위'] || rawDataObj['채취부위'] || null;
+    extractionSolvent = rawDataObj['추출용매'] || rawDataObj['용매'] || null;
+    extractionMethod  = rawDataObj['추출방법'] || rawDataObj['추출 방법'] || null;
+  } else if (matDataSource.includes('약용식물')) {
+    // 산림청_약용식물: bioactivity[1]을 채취 방법으로 표시
+    const bioArr = Array.isArray(material.bioactivity) ? material.bioactivity as string[]
+      : (material.bioactivity ? [String(material.bioactivity)] : []);
+    if (bioArr.length >= 2 && bioArr[1]) {
+      harvestMethod = String(bioArr[1]).trim();
+    }
+  }
+  // 식물정유은행: 추출 조건 데이터 없음 → 모두 null 유지
+
+  const hasExtractionInfo = extractionPart || extractionSolvent || extractionMethod || harvestMethod;
+
 
   const todayString = new Date().toLocaleDateString('ko-KR', {
     year: 'numeric',
@@ -261,21 +382,74 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                 {displayScientific}
               </p>
             )}
+            {(() => {
+              // 자생지 우선순위 파싱
+              const rd = rawDataObj;
+              const distValue = (material as any).distribution !== undefined ? (material as any).distribution : fetchedDistribution;
+              const dist =
+                (distValue?.trim()) ||
+                rd['약용식물분포설명'] ||
+                rd['분포'] ||
+                rd['distribution'] ||
+                null;
+              return dist ? (
+                <p className="text-[11px] text-stone-500 flex items-center gap-1 pt-0.5">
+                  <span className="text-stone-300">📍</span>
+                  {dist}
+                </p>
+              ) : null;
+            })()}
           </div>
         </div>
 
         {/* 본문 스크롤 영역 */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
+          {/* 0. 추출 조건 (raw_data 있을 때만 표시) */}
+          {hasExtractionInfo && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
+                <FlaskConical className="w-3.5 h-3.5 text-stone-300" />
+                {harvestMethod ? '채취·추출 정보' : '추출 조건'}
+              </h3>
+              <div className="bg-stone-50 border border-stone-150 rounded-xl p-3 space-y-1.5">
+                {extractionPart && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-16 font-semibold text-stone-500 shrink-0">추출 부위</span>
+                    <span className="text-stone-700">{extractionPart}</span>
+                  </div>
+                )}
+                {extractionSolvent && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-16 font-semibold text-stone-500 shrink-0">추출 용매</span>
+                    <span className="text-stone-700">{extractionSolvent}</span>
+                  </div>
+                )}
+                {extractionMethod && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-16 font-semibold text-stone-500 shrink-0">추출 방법</span>
+                    <span className="text-stone-700">{extractionMethod}</span>
+                  </div>
+                )}
+                {harvestMethod && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <span className="w-16 font-semibold text-stone-500 shrink-0 pt-0.5">채취 방법</span>
+                    <span className="text-stone-700 leading-relaxed">{harvestMethod}</span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* 1. 주요 효능 */}
-          <section className="space-y-2.5">
-            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-stone-300" />
-              주요 생리활성 효능
-            </h3>
-            {bioactivityTags.length > 0 ? (
+          {bioactivityTags.length > 0 && (
+            <section className="space-y-2.5">
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-stone-300" />
+                주요 생리활성 효능
+              </h3>
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-1.5">
-                  {bioactivityTags.map((tag, i) => (
+                  {bioactivityTags.slice(0, 8).map((tag, i) => (
                     <span
                       key={i}
                       className="text-xs font-semibold bg-[#2D5016]/8 text-[#2D5016] border border-[#2D5016]/15 px-2.5 py-1 rounded-full"
@@ -283,6 +457,11 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                       {tag}
                     </span>
                   ))}
+                  {bioactivityTags.length > 8 && (
+                    <span className="text-xs font-semibold bg-stone-100 text-stone-500 border border-stone-200 px-2.5 py-1 rounded-full">
+                      +{bioactivityTags.length - 8}개
+                    </span>
+                  )}
                 </div>
                 {rawBio && (
                   <div className="mt-1">
@@ -302,14 +481,8 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                   </div>
                 )}
               </div>
-            ) : rawBio && rawBio !== '정보 없음' ? (
-              <p className="text-xs text-stone-600 leading-relaxed bg-stone-50 border border-stone-100 rounded-xl p-3.5">
-                {rawBio}
-              </p>
-            ) : (
-              <p className="text-xs text-stone-400 italic">효능 정보 없음</p>
-            )}
-          </section>
+            </section>
+          )}
 
           {/* 2. 성분 목록 */}
           <section className="space-y-2.5">
@@ -370,14 +543,55 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
               화장품 원료 적합성
             </h3>
             {(material as any).cosmetic_allowed === true ? (
-              <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
-                <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-bold text-emerald-800">식약처 원료성분 등록 확인</p>
-                  <p className="text-[11px] text-emerald-700 mt-0.5">
-                    식약처 화장품 원료성분 목록에 등록된 원료
-                  </p>
+              <div className="flex flex-col gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-emerald-800">✓ 식약처 화장품 원료성분 등록 확인</p>
+                    <p className="text-[11px] text-emerald-700 mt-0.5">
+                      식약처 화장품 원료성분 목록에 등록된 원료
+                    </p>
+                  </div>
                 </div>
+                {(material as any).cosmetic_matched_ingredients && Array.isArray((material as any).cosmetic_matched_ingredients) && (material as any).cosmetic_matched_ingredients.length > 0 && (
+                  <div className="mt-1 bg-white rounded-lg border border-emerald-100 overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-emerald-50/50 text-emerald-800 font-semibold border-b border-emerald-100">
+                        <tr>
+                          <th className="px-3 py-2 border-r border-emerald-100">성분명(한글)</th>
+                          <th className="px-3 py-2 border-r border-emerald-100">성분명(영문)</th>
+                          <th className="px-3 py-2 whitespace-nowrap">CAS No</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-emerald-50">
+                        {(material as any).cosmetic_matched_ingredients
+                          .slice(0, showAllIngredients ? undefined : 5)
+                          .map((ing: any, idx: number) => (
+                          <tr key={idx} className="text-emerald-900">
+                            <td className="px-3 py-2 font-medium border-r border-emerald-50">{ing.ingr_kor_name || '-'}</td>
+                            <td className="px-3 py-2 text-emerald-700 text-[11px] border-r border-emerald-50">{ing.ingr_eng_name || '-'}</td>
+                            <td className="px-3 py-2 font-mono text-[10px] text-emerald-600">{ing.cas_no || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {(material as any).cosmetic_matched_ingredients.length > 5 && (
+                      <button
+                        onClick={() => setShowAllIngredients(!showAllIngredients)}
+                        className="w-full py-2 bg-emerald-50/30 hover:bg-emerald-50/50 text-xs font-medium text-emerald-700 border-t border-emerald-100 transition-colors flex items-center justify-center gap-1"
+                      >
+                        {showAllIngredients ? (
+                          <>접기 <ChevronUp className="w-3 h-3" /></>
+                        ) : (
+                          <>외 {(material as any).cosmetic_matched_ingredients.length - 5}개 성분 더 보기 <ChevronDown className="w-3 h-3" /></>
+                        )}
+                      </button>
+                    )}
+                    <div className="px-3 py-1.5 bg-emerald-50/30 text-[9px] text-emerald-600/70 border-t border-emerald-100 text-right">
+                      출처: 식약처 화장품 원료성분 정보 (data.go.kr)
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (material as any).cosmetic_allowed === false ? (
               <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3.5">
@@ -404,77 +618,83 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
           {/* 2.5. KEGG 데이터 섹션 (성분 목록 바로 아래) */}
           {((material.kegg_pathways && material.kegg_pathways.length > 0) || (material.kegg_enzymes && material.kegg_enzymes.length > 0)) && (
-            <div className="space-y-5 border-t border-stone-100 pt-5">
-              {/* 대사 경로 섹션 */}
-              {material.kegg_pathways && material.kegg_pathways.length > 0 && (
-                <section className="space-y-2.5">
-                  <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
-                    🔬 대사 경로
-                  </h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(showAllPathways ? material.kegg_pathways : material.kegg_pathways.slice(0, 5)).map((path, idx) => (
-                      <a
-                        key={idx}
-                        href={`https://www.genome.jp/pathway/${path.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/50 text-xs font-semibold text-emerald-850 transition-all shadow-sm cursor-pointer hover:-translate-y-0.5"
-                      >
-                        {path.name}
-                      </a>
-                    ))}
-                  </div>
-                  {material.kegg_pathways.length > 5 && (
-                    <button
-                      onClick={() => setShowAllPathways(!showAllPathways)}
-                      className="inline-flex items-center gap-1 text-[10px] font-bold text-[#2D5016] hover:underline"
-                    >
-                      {showAllPathways ? '접기' : `외 ${material.kegg_pathways.length - 5}개 보기`}
-                    </button>
-                  )}
-                  <div className="text-[9px] text-stone-400 font-medium">
-                    출처: KEGG Database
-                  </div>
-                </section>
-              )}
+            <div className="space-y-4 border-t border-stone-100 pt-5">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-[13px] font-bold text-stone-800">
+                  효소 처리 가능성 (KEGG)
+                </h3>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#EEEDFE] text-[#3C3489]">생물학 활성 데이터</span>
+              </div>
+              
+              <div className="text-[11.5px] text-stone-700 bg-stone-50 p-3.5 rounded-lg border border-stone-200 leading-relaxed font-medium relative overflow-hidden">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[#6366F1] font-extrabold text-[10px]">✨ AI Analysis</span>
+                  {keggLoading && <Loader2 className="w-3 h-3 text-stone-400 animate-spin" />}
+                </div>
+                {keggLoading ? (
+                  <span className="text-stone-400">데이터를 분석 중입니다...</span>
+                ) : (
+                  keggInterpretation || "효소 처리 실험 설계 참고용으로 활용할 수 있습니다."
+                )}
+              </div>
 
-              {/* 관련 효소 섹션 */}
-              {material.kegg_enzymes && material.kegg_enzymes.length > 0 && (
-                <section className="space-y-2.5">
-                  <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
-                    ⚗ 관련 효소
-                  </h3>
-                  <div className="bg-white border border-stone-200 rounded-2xl overflow-hidden divide-y divide-stone-100 shadow-sm">
-                    {(showAllEnzymes ? material.kegg_enzymes : material.kegg_enzymes.slice(0, 5)).map((enzyme, idx) => (
-                      <div
-                        key={idx}
-                        className="px-3.5 py-2.5 flex justify-between items-center text-xs text-stone-700 font-medium"
-                      >
-                        <span className="truncate pr-2" title={enzyme.name}>{enzyme.name}</span>
-                        <span className="text-[9px] text-stone-400 font-mono shrink-0">
-                          EC {enzyme.id}
-                        </span>
-                      </div>
-                    ))}
-                    {material.kegg_enzymes.length > 5 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowAllEnzymes(!showAllEnzymes)}
-                        className="w-full py-2 bg-stone-50 hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-[10px] text-center font-bold border-t border-stone-150 transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        {showAllEnzymes
-                          ? '접기 ▲'
-                          : `외 ${material.kegg_enzymes.length - 5}개 더 보기 ▼`}
-                      </button>
-                    )}
+              <div className="space-y-2.5 text-[12px] pt-1">
+                {material.kegg_enzymes && material.kegg_enzymes.length > 0 && (
+                  <div className="flex items-start gap-3">
+                    <span className="text-stone-400 font-medium shrink-0 w-[60px]">관련 효소</span>
+                    <span className="text-stone-700 font-medium">
+                      {material.kegg_enzymes[0].name} (EC {material.kegg_enzymes[0].id})
+                      {material.kegg_enzymes.length > 1 && ` 외 ${material.kegg_enzymes.length - 1}개`}
+                    </span>
                   </div>
-                </section>
-              )}
+                )}
+                
+                {material.kegg_pathways && material.kegg_pathways.length > 0 && (
+                  <div className="flex items-start gap-3">
+                    <span className="text-stone-400 font-medium shrink-0 w-[60px]">대사 경로</span>
+                    <span className="text-stone-700 font-medium">
+                      {material.kegg_pathways[0].name}
+                      {material.kegg_pathways.length > 1 && ` 외 ${material.kegg_pathways.length - 1}개`}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 pt-2.5 border-t border-dashed border-stone-200 text-[10.5px] text-amber-700 leading-relaxed">
+                ⚠ 본 해석은 KEGG DB 기반 AI 생성 참고 정보이며 실험적 검증이 필요합니다.<br/>
+                <span className="text-stone-400 text-[10px]">출처: KEGG Database (genome.jp)</span>
+              </div>
             </div>
           )}
 
           {/* 3. 특허 선행조사 */}
-          {patentStatus !== 'unavailable' && (
+          {patentStatus === 'unavailable' ? (
+            <section className="space-y-2.5 bg-[#FAF7F0]/60 border border-stone-200/60 rounded-2xl p-4.5">
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
+                국내 특허 선행조사 결과
+              </h3>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start gap-2 text-stone-500 text-sm py-1">
+                  <Clock className="w-4 h-4 shrink-0 mt-0.5 text-stone-400" />
+                  <div className="space-y-1">
+                    <p className="font-medium text-stone-600">KIPRIS 특허 선행조사 연동 준비 중입니다.</p>
+                    <p className="text-[11px] text-stone-400 leading-relaxed">
+                      직접 조회:{' '}
+                      <a
+                        href={`https://www.kipris.or.kr/khome/main.do`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#2D5016] underline underline-offset-2"
+                      >
+                        kipris.or.kr
+                      </a>
+                      에서 "{(material.name_ko || material.name)}"로 검색하세요.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : (
             <section className="space-y-2.5 bg-[#FAF7F0]/60 border border-stone-200/60 rounded-2xl p-4.5">
               <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
                 국내 특허 선행조사 결과
@@ -517,6 +737,88 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
               </p>
             </section>
           )}
+
+          {/* 3.5. 분양 가능 여부 및 확보 방법 */}
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
+              <FlaskConical className="w-3.5 h-3.5 text-stone-300" />
+              분양 가능 여부 및 확보 방법
+            </h3>
+            {(() => {
+              const distributionCode = rawDataObj?.['식별번호'] || rawDataObj?.['분양코드'] || rawDataObj?.['분양번호'] || rawDataObj?.['accession_no'] || rawDataObj?.['distribution_code'] || null;
+              if (distributionCode) {
+                return (
+                  <div className="flex flex-col gap-3 bg-[#E1F5EE]/40 border border-[#9FE1CB] rounded-xl p-3.5">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-4.5 h-4.5 text-[#085041] shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-bold text-[#085041]">산림바이오소재은행 보유 확인 — 분양 신청 가능</p>
+                        <div className="mt-2 space-y-1 text-[11px]">
+                          <div className="flex gap-2">
+                            <span className="w-16 font-semibold text-emerald-800 shrink-0">분양 코드</span>
+                            <span className="font-mono font-bold text-[#085041]">{distributionCode}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="w-16 font-semibold text-emerald-800 shrink-0">소재 형태</span>
+                            <span className="text-emerald-900">{extractionPart || '식물체'} 정밀 추출물 (에탄올/정제수 분획물)</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="w-16 font-semibold text-emerald-800 shrink-0">신청 기관</span>
+                            <span className="text-emerald-900">{material.source_org || '국립산림과학원 산림바이오소재연구소'}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="w-16 font-semibold text-emerald-800 shrink-0">신청 자격</span>
+                            <span className="text-emerald-900">산림청장에게 분양신청서 제출 후 승인 시 누구나 신청 가능 (승인까지 약 14일 소요)</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="w-16 font-semibold text-emerald-800 shrink-0">신청 절차</span>
+                            <span className="text-emerald-900">
+                              ① 분양신청서 작성 → ② 분양신청목록 제출 → ③ 산림청장 승인 → ④ 분양계약서 작성 후 소재 수령
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-[9px] text-[#085041]/60 mt-2 text-right tracking-tight">
+                          출처: 농업생명자원 보존·관리 및 이용에 관한 법률 제8조 제1항 기준
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              const speciesName = material.species || material.scientific_name || material.name_ko || '알 수 없음';
+              return (
+                <div className="flex flex-col gap-3 bg-stone-50 border border-stone-200 rounded-xl p-3.5">
+                  <div className="flex items-start gap-3">
+                    <CircleHelp className="w-4.5 h-4.5 text-stone-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-bold text-stone-700">― 직접 분양 코드 미포함 소재</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 mt-1">
+                    <p className="text-xs font-bold text-stone-600">소재 확보 방법 2가지:</p>
+                    
+                    <div className="bg-white border border-stone-200 rounded-lg p-3 space-y-1.5 shadow-sm">
+                      <p className="text-[11px] font-bold text-stone-700">1. NIFoS 산림바이오소재은행 검색</p>
+                      <p className="text-[10px] text-stone-500 leading-relaxed">
+                        동일 식물명 또는 학명으로 검색 후 분양 신청 가능 (승인까지 약 14일)<br/>
+                        → nifos.go.kr
+                      </p>
+                      <div className="inline-block px-2 py-1 bg-[#E1F5EE] border border-[#9FE1CB] rounded text-[#085041] text-[10px] font-bold mt-1">
+                        검색어: {speciesName}
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-stone-200 rounded-lg p-3 space-y-1.5 shadow-sm">
+                      <p className="text-[11px] font-bold text-stone-700">2. 국내 천연물 원료 공급사 구매</p>
+                      <p className="text-[10px] text-stone-500 leading-relaxed">
+                        한국생약협회 회원사 또는 국내 식물 추출물 공급사를 통해 원료 구매 가능
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </section>
 
           {/* 4. 데이터 출처 정보 */}
           <section className="space-y-2 text-[11px] text-stone-500 bg-stone-50/50 border border-stone-150 rounded-xl p-3.5 font-medium">
