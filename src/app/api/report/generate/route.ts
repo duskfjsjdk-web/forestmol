@@ -4,6 +4,7 @@ import { getSupabaseServer, getSupabaseAdmin } from '@/lib/supabaseServer';
 import { generateReportHtml } from '@/lib/report-template';
 import Anthropic from '@anthropic-ai/sdk';
 import crypto from 'crypto';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const dynamic = 'force-dynamic';
 
@@ -275,6 +276,64 @@ ${formattedMaterials}
       console.error('⚠️ Gemini API 호출 또는 파싱 오류. 기본 Fallback을 활용합니다.', e.message);
     }
 
+    // ─── §2-C AI 해석 보강 ───────────────────────────────────────────
+    // 배치 호출 결과에 material_kegg_interpretations가 없거나 비어 있으면
+    // 슬라이드오버와 동일한 방식으로 소재별 개별 Gemini 호출로 생성
+    console.log('🔍 [KEGG 해석 확인] material_kegg_interpretations:', JSON.stringify(aiResult.material_kegg_interpretations));
+
+    const keggGenAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const keggModel = keggGenAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: `당신은 화장품 소재 연구 보조 AI입니다.
+주어진 실제 DB 데이터만 기반으로 설명합니다.
+데이터 없는 수치(함량, IC₅₀, 점수 등)는 절대 생성하지 않습니다.
+전문 용어는 쉽게 풀어서, 한국어로, 추측이 아닌 가능성으로 표현해줘.`
+    });
+
+    for (const m of aiInputMaterials) {
+      const mName = m.name_ko || m.name || '';
+      if (!mName) continue;
+
+      // 이미 유효한 해석이 있으면 스킵
+      const existing = aiResult.material_kegg_interpretations?.[mName];
+      if (existing && existing !== '효소 처리 실험 설계 참고용으로 활용할 수 있습니다.') {
+        console.log(`✅ [KEGG 해석] ${mName}: 배치 결과 사용`);
+        continue;
+      }
+
+      // KEGG 데이터가 없으면 스킵
+      if (!m.kegg_enzymes?.length && !m.kegg_pathways?.length) {
+        console.log(`⏭️ [KEGG 해석] ${mName}: KEGG 데이터 없음, 스킵`);
+        continue;
+      }
+
+      try {
+        const keggPrompt = `소재명: ${mName}
+주요 성분: ${Array.isArray(m.compounds) ? m.compounds.slice(0,3).map((c:any) => c.name).join(', ') : '정보 없음'}
+KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2).map((p:any) => p.name).join(', ') : '정보 없음'}
+관련 효소: ${Array.isArray(m.kegg_enzymes) ? m.kegg_enzymes.slice(0,2).map((e:any) => `${e.name}(EC ${e.id})`).join(', ') : '정보 없음'}
+
+위 데이터를 바탕으로 화장품 ODM 연구원을 위해 이 소재의 효소 처리 시 예상되는 성분 변화와 화장품 소재로서의 활용 가능성을 2문장으로 설명해줘.
+예시: "광나무의 Oleuropein 성분은 oleuropein beta-glucosidase(EC 3.2.1.206) 효소 처리 시 항산화 활성이 강화된 하이드록시타이로솔로 전환될 가능성이 있습니다."
+전문 용어는 쉽게 풀어서, 한국어로, 가능성으로 표현해줘.
+응답은 반드시 해석 문장만 출력해줘.`;
+
+        const keggResult = await keggModel.generateContent(keggPrompt);
+        const keggText = keggResult.response.text().trim();
+
+        if (keggText) {
+          if (!aiResult.material_kegg_interpretations) {
+            aiResult.material_kegg_interpretations = {};
+          }
+          aiResult.material_kegg_interpretations[mName] = keggText;
+          console.log(`✅ [KEGG 해석] ${mName} 개별 생성 완료:`, keggText.slice(0, 60) + '...');
+        }
+      } catch (keggErr: any) {
+        console.error(`⚠️ [KEGG 해석] ${mName} 개별 생성 실패:`, keggErr.message);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     // 5. KIPRIS 실시간 특허 연동 및 PubChem 구조식 CID 동시 획득
     const mappedMaterials = await Promise.all(materials.map(async (m: any) => {
       const patentCount = await fetchPatentCount(m.name_ko || m.name || '');
@@ -313,6 +372,40 @@ ${formattedMaterials}
       }
       console.log(`🧪 [PubChem CID] 소재 ${m.name_ko}의 최종 PubChem CID 결과:`, cid);
 
+      // PubMed 논문 조회 추가
+      let papers: any[] = [];
+      const scientificName = m.scientific_name || m.species || '';
+      if (scientificName) {
+        try {
+          // 상위 성분 3개 추출
+          let compoundsList: any[] = [];
+          if (m.compounds) {
+            if (Array.isArray(m.compounds)) {
+              compoundsList = m.compounds;
+            } else {
+              try {
+                compoundsList = typeof m.compounds === 'string' ? JSON.parse(m.compounds) : m.compounds;
+              } catch {}
+            }
+          }
+          const compNames = (compoundsList || [])
+            .slice(0, 3)
+            .map((c: any) => c.name)
+            .join(',');
+
+          const origin = request.url ? new URL(request.url).origin : '';
+          const pubmedRes = await fetch(`${origin}/api/pubmed?scientificName=${encodeURIComponent(scientificName)}&compounds=${encodeURIComponent(compNames)}`);
+          if (pubmedRes.ok) {
+            const pubmedData = await pubmedRes.json();
+            if (pubmedData.success) {
+              papers = pubmedData.papers || [];
+            }
+          }
+        } catch (e: any) {
+          console.error(`⚠️ [Report Generate] ${m.name_ko} PubMed 조회 실패:`, e.message);
+        }
+      }
+
       return {
         id: m.id,
         name_ko: m.name_ko || m.name || '알 수 없는 소재',
@@ -332,7 +425,8 @@ ${formattedMaterials}
         kegg_id: m.kegg_id || null,
         kegg_enzymes: m.kegg_enzymes || [],
         kegg_pathways: m.kegg_pathways || [],
-        pubchem_cid: cid
+        pubchem_cid: cid,
+        papers
       };
     }));
 

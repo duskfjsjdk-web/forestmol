@@ -16,7 +16,7 @@ async function createTestUser() {
   }
 
   const testEmail = 'test@forestmol.com';
-  const testPassword = 'forestmol2025!';
+  const testPassword = 'test2026!';
 
   console.log(`\n🌿 ForestMol 테스트 계정 생성 중...`);
   console.log(`   이메일: ${testEmail}`);

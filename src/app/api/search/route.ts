@@ -8,13 +8,14 @@ export const dynamic = 'force-dynamic';
 const embeddingCache = new Map<string, number[]>();
 
 async function getEmbeddingWithRetry(model: any, text: string, retries = 3): Promise<number[]> {
-  if (embeddingCache.has(text)) {
-    return embeddingCache.get(text)!;
-  }
+  // if (embeddingCache.has(text)) {
+  //   return embeddingCache.get(text)!;
+  // }
   
   try {
     const response = await model.embedContent({
       content: { role: 'user', parts: [{ text }] },
+      taskType: 'RETRIEVAL_DOCUMENT' as any,
       outputDimensionality: 768,
     } as any);
     const embedding = response.embedding.values;

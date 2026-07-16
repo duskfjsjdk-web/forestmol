@@ -30,6 +30,15 @@ interface MaterialData {
   kegg_pathways?: Array<{ id: string; name: string }> | null;
   kegg_enzymes?: Array<{ id: string; name: string }> | null;
   pubchem_cid?: number | null;
+  papers?: Array<{
+    pmid: string;
+    title: string;
+    authors: string;
+    journal: string;
+    year: string;
+    doi: string;
+    url: string;
+  }>;
 }
 
 interface ProjectData {
@@ -236,6 +245,33 @@ export function generateReportHtml(
       }
       return acc;
     }, [] as typeof compoundList);
+
+    // 대표 성분 우선순위 정렬 적용 (최종 조정 순서)
+    const PRIORITY_COMPOUNDS = [
+      'piceid',
+      'polydatin',
+      'resveratrol',
+      'emodin',
+      'dihydroquercetin',
+      'taxifolin',
+      'physcion'
+    ];
+
+    uniqueCompounds.sort((a, b) => {
+      const getPriority = (name: string) => {
+        const clean = name.toLowerCase().replace(/^\(e\)-/, '').trim();
+        const idx = PRIORITY_COMPOUNDS.findIndex(p => clean === p.toLowerCase());
+        return idx === -1 ? 999 : idx;
+      };
+
+      const aPri = getPriority(a.name || '');
+      const bPri = getPriority(b.name || '');
+
+      if (aPri !== bPri) {
+        return aPri - bPri;
+      }
+      return 0;
+    });
 
     let compoundsSectionHtml = '';
     if (uniqueCompounds && uniqueCompounds.length > 0) {
@@ -616,6 +652,31 @@ export function generateReportHtml(
           <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">KIPRIS 조회 기준: 실시간 API · 검색어: ${m.name_ko}</div>
           `}
         </div>
+
+        <!-- [§3-B 관련 논문 (PubMed)] -->
+        ${Array.isArray(m.papers) && m.papers.length > 0 ? `
+        <div class="sec">
+          <div class="sec-head">
+            <div class="sec-num n3" style="font-size: 10px; font-weight: bold; background: #E1F5EE; color: #085041;">3-B</div>
+            <div class="sec-title">관련 논문 (PubMed)</div>
+            <span class="sec-badge tag" style="background:#E1F5EE;color:#085041;border:0.5px solid #9FE1CB">학술 연구 링크</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            ${m.papers.map(paper => `
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <div style="font-size: 12.5px; font-weight: bold; color: var(--color-text-primary); line-height: 1.4;">${paper.title}</div>
+                <div style="font-size: 11px; color: var(--color-text-tertiary);">${paper.authors} · ${paper.journal} · ${paper.year}</div>
+                <div style="margin-top: 2px;">
+                  <a href="${paper.url}" target="_blank" style="font-size: 11px; font-weight: bold; color: #2D5016; text-decoration: none;">→ PubMed에서 보기 [외부 링크]</a>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <div style="margin-top: 12px; padding: 8px 10px; background: var(--color-background-secondary); border-radius: 6px; border: 0.5px solid var(--color-border-tertiary); font-size: 10px; color: var(--color-text-tertiary); line-height: 1.5;">
+            ※ ForestMol은 링크만 제공하며 논문 내용을 요약하거나 보증하지 않습니다.
+          </div>
+        </div>
+        ` : ''}
 
         <!-- [§4 화장품 원료 적합성] (cosmetic_allowed 단일 카드 노출) -->
         <div class="sec">

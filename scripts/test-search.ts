@@ -18,8 +18,11 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 async function testQuery(queryText: string) {
   try {
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-    const response = await model.embedContent(queryText);
+    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+    const response = await model.embedContent({
+      content: { role: 'user', parts: [{ text: queryText }] },
+      outputDimensionality: 768,
+    } as any);
     const queryEmbedding = response.embedding.values;
 
     const { data: results, error: searchError } = await supabase.rpc(

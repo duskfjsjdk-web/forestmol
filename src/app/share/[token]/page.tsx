@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { getSupabaseAdmin } from '@/lib/supabaseServer';
+import { createClient } from '@supabase/supabase-js';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { PrintHeader } from '@/components/reports/PrintHeader';
 
@@ -18,17 +18,22 @@ interface SharePageProps {
 export default async function SharePage({ params }: SharePageProps) {
   const token = params.token;
 
-  const supabase = getSupabaseAdmin();
+  // anon 클라이언트 사용 — reports RLS에 공개 읽기 정책 존재
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   
-  // share_token을 기반으로 리포트 내역 및 조인된 프로젝트 정보 조회
+  // share_token으로 리포트 조회 (projects 조인 제거 — RLS 오류 방지)
   const { data: report, error } = await supabase
     .from('reports')
-    .select('*, projects(*)')
+    .select('id, title, html_content, expires_at, share_token')
     .eq('share_token', token)
     .single();
 
   // 1. 리포트가 존재하지 않거나 에러 발생 시
   if (error || !report) {
+    console.error('[SharePage] 리포트 조회 실패:', error?.message, 'token:', token);
     return <InvalidLinkMessage reason="리포트 데이터를 찾을 수 없거나 올바르지 않은 주소입니다." />;
   }
 
@@ -41,12 +46,10 @@ export default async function SharePage({ params }: SharePageProps) {
     return <InvalidLinkMessage reason="링크가 만료됐습니다" />;
   }
 
-  const project = report.projects;
-
   return (
     <div className="min-h-screen bg-[#FAF7F0] flex flex-col font-sans">
       {/* 상단 인쇄용 헤더 제어 바 (인쇄 시 투명 가림 처리) */}
-      <PrintHeader projectName={project?.name || '소재 제안 리포트'} />
+      <PrintHeader projectName={report.title || '소재 제안 리포트'} />
 
       {/* 리포트 본문 콘텐츠 삽입 */}
       <main className="flex-1 w-full">

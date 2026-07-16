@@ -35,6 +35,10 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [fetchedDistribution, setFetchedDistribution] = useState<string | null>(null); // distribution 보조 상태
   const [keggInterpretation, setKeggInterpretation] = useState<string | null>(null);
   const [keggLoading, setKeggLoading] = useState(false);
+  
+  // PubMed 논문 상태
+  const [papers, setPapers] = useState<any[]>([]);
+  const [papersLoading, setPapersLoading] = useState(false);
 
   // 프로젝트 기능용 상태
   const [projects, setProjects] = useState<any[]>([]);
@@ -73,6 +77,8 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
     setRawData(null); // raw_data 초기화
     setFetchedDistribution(null);
     setKeggInterpretation(null);
+    setPapers([]);
+    setPapersLoading(false);
 
     let active = true;
 
@@ -158,10 +164,40 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       }
     };
 
+    // 5. PubMed 논문 목록 조회
+    const fetchPubMedPapers = async () => {
+      const scientificName = material.scientific_name || material.species || material.display_species || '';
+      if (!scientificName) return;
+
+      setPapersLoading(true);
+      try {
+        // 상위 성분 3개 추출
+        const compNames = (material.compounds || [])
+          .slice(0, 3)
+          .map((c: any) => c.name)
+          .join(',');
+
+        const url = `/api/pubmed?scientificName=${encodeURIComponent(scientificName)}&compounds=${encodeURIComponent(compNames)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('PubMed 조회 실패');
+        const data = await res.json();
+        if (active && data.success) {
+          setPapers(data.papers || []);
+        }
+      } catch (err) {
+        console.error('PubMed 논문 조회 실패:', err);
+      } finally {
+        if (active) {
+          setPapersLoading(false);
+        }
+      }
+    };
+
     checkBookmarkStatus();
     fetchPatent();
     fetchExtraData();
     fetchKeggAI();
+    fetchPubMedPapers();
 
     return () => {
       active = false;
@@ -206,6 +242,33 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       return acc;
     }, []
   );
+
+  // 대표 성분 우선순위 정렬 적용 (최종 조정 순서)
+  const PRIORITY_COMPOUNDS = [
+    'piceid',
+    'polydatin',
+    'resveratrol',
+    'emodin',
+    'dihydroquercetin',
+    'taxifolin',
+    'physcion'
+  ];
+
+  uniqueCompounds.sort((a: any, b: any) => {
+    const getPriority = (name: string) => {
+      const clean = name.toLowerCase().replace(/^\(e\)-/, '').trim();
+      const idx = PRIORITY_COMPOUNDS.findIndex(p => clean === p.toLowerCase());
+      return idx === -1 ? 999 : idx;
+    };
+
+    const aPri = getPriority(a.name || '');
+    const bPri = getPriority(b.name || '');
+
+    if (aPri !== bPri) {
+      return aPri - bPri;
+    }
+    return 0;
+  });
 
   const displayCompounds = showAllCompounds ? uniqueCompounds : uniqueCompounds.slice(0, 10);
   const hasMoreCompounds = uniqueCompounds.length > 10;
@@ -819,6 +882,41 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
               );
             })()}
           </section>
+
+          {/* 관련 논문 (PubMed) 섹션 */}
+          {(!papersLoading && papers.length > 0) && (
+            <section className="space-y-3.5 border-t border-stone-200/60 pt-5">
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-stone-300" />
+                관련 논문 (PubMed)
+              </h3>
+              
+              <div className="space-y-4">
+                {papers.map((paper, idx) => (
+                  <div key={paper.pmid || idx} className="space-y-1">
+                    <h4 className="text-xs font-bold text-stone-800 leading-snug">
+                      {paper.title}
+                    </h4>
+                    <p className="text-[10px] text-stone-400 font-medium">
+                      {paper.authors} · {paper.journal} · {paper.year}
+                    </p>
+                    <a
+                      href={paper.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-[10px] font-bold text-[#2D5016] hover:underline"
+                    >
+                      → PubMed에서 보기 [외부 링크]
+                    </a>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[9px] text-stone-400/80 leading-normal border-t border-stone-200/40 pt-2 bg-stone-50/50 p-2 rounded-lg">
+                ※ ForestMol은 링크만 제공하며 논문 내용을 요약하거나 보증하지 않습니다.
+              </p>
+            </section>
+          )}
 
           {/* 4. 데이터 출처 정보 */}
           <section className="space-y-2 text-[11px] text-stone-500 bg-stone-50/50 border border-stone-150 rounded-xl p-3.5 font-medium">

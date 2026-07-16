@@ -79,6 +79,26 @@ export async function submitPilot(formData: {
 
     console.log("🎉 [submitPilot] 데이터베이스 저장 완료! 결과:", JSON.stringify(data, null, 2));
 
+    // 이메일 알림 발송 (실패해도 신청 자체는 성공 처리)
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'https://forestmol.vercel.app'}/api/notify-pilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          record: {
+            company_name: validationResult.data.company,
+            name: validationResult.data.name,
+            email: validationResult.data.email,
+            created_at: new Date().toISOString(),
+            message: `관심 카테고리: ${finalCategories.join(', ')}`,
+          }
+        }),
+      });
+      console.log("📧 [submitPilot] 알림 이메일 발송 요청 완료");
+    } catch (emailError) {
+      console.error("⚠️ [submitPilot] 알림 이메일 발송 실패 (신청은 정상 저장됨):", emailError);
+    }
+
     return { 
       success: true, 
       message: "신청 완료! 24시간 내에 이메일로 보내드립니다 🌿" 
