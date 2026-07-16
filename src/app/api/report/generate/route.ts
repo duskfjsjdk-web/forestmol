@@ -278,17 +278,16 @@ ${formattedMaterials}
 
     // ─── §2-C AI 해석 보강 ───────────────────────────────────────────
     // 배치 호출 결과에 material_kegg_interpretations가 없거나 비어 있으면
-    // 슬라이드오버와 동일한 방식으로 소재별 개별 Gemini 호출로 생성
+    // 슬라이드오버와 동일한 방식으로 소재별 개별 Claude 호출로 생성
     console.log('🔍 [KEGG 해석 확인] material_kegg_interpretations:', JSON.stringify(aiResult.material_kegg_interpretations));
 
-    const keggGenAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const keggModel = keggGenAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: `당신은 화장품 소재 연구 보조 AI입니다.
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+    const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+    
+    const keggSystemPrompt = `당신은 화장품 소재 연구 보조 AI입니다.
 주어진 실제 DB 데이터만 기반으로 설명합니다.
 데이터 없는 수치(함량, IC₅₀, 점수 등)는 절대 생성하지 않습니다.
-전문 용어는 쉽게 풀어서, 한국어로, 추측이 아닌 가능성으로 표현해줘.`
-    });
+전문 용어는 쉽게 풀어서, 한국어로, 추측이 아닌 가능성으로 표현해줘.`;
 
     for (const m of aiInputMaterials) {
       const mName = m.name_ko || m.name || '';
@@ -307,8 +306,7 @@ ${formattedMaterials}
         continue;
       }
 
-      try {
-        const keggPrompt = `소재명: ${mName}
+      const keggPrompt = `소재명: ${mName}
 주요 성분: ${Array.isArray(m.compounds) ? m.compounds.slice(0,3).map((c:any) => c.name).join(', ') : '정보 없음'}
 KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2).map((p:any) => p.name).join(', ') : '정보 없음'}
 관련 효소: ${Array.isArray(m.kegg_enzymes) ? m.kegg_enzymes.slice(0,2).map((e:any) => `${e.name}(EC ${e.id})`).join(', ') : '정보 없음'}
@@ -318,18 +316,37 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
 전문 용어는 쉽게 풀어서, 한국어로, 가능성으로 표현해줘.
 응답은 반드시 해석 문장만 출력해줘.`;
 
-        const keggResult = await keggModel.generateContent(keggPrompt);
-        const keggText = keggResult.response.text().trim();
-
-        if (keggText) {
-          if (!aiResult.material_kegg_interpretations) {
-            aiResult.material_kegg_interpretations = {};
+      let interpretation = '';
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const msg = await anthropic.messages.create({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 300,
+            system: keggSystemPrompt,
+            messages: [{ role: 'user', content: keggPrompt }]
+          });
+          
+          if (msg.content[0].type === 'text') {
+            interpretation = msg.content[0].text.trim();
           }
-          aiResult.material_kegg_interpretations[mName] = keggText;
-          console.log(`✅ [KEGG 해석] ${mName} 개별 생성 완료:`, keggText.slice(0, 60) + '...');
+          break;
+        } catch (keggErr: any) {
+          console.error(`⚠️ [KEGG 해석] ${mName} Attempt ${attempt} failed:`, keggErr.message);
+          if (attempt === 1) {
+            console.log('Retrying in 2 seconds...');
+            await new Promise(r => setTimeout(r, 2000));
+          } else {
+            interpretation = "효소 처리 분석을 불러오는 중입니다. 잠시 후 다시 시도해주세요.";
+          }
         }
-      } catch (keggErr: any) {
-        console.error(`⚠️ [KEGG 해석] ${mName} 개별 생성 실패:`, keggErr.message);
+      }
+
+      if (interpretation) {
+        if (!aiResult.material_kegg_interpretations) {
+          aiResult.material_kegg_interpretations = {};
+        }
+        aiResult.material_kegg_interpretations[mName] = interpretation;
+        console.log(`✅ [KEGG 해석] ${mName} 개별 생성 완료:`, interpretation.slice(0, 60) + '...');
       }
     }
     // ─────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,9 +7,9 @@ export async function POST(request: Request) {
   try {
     const { name, compounds, kegg_pathways, kegg_enzymes } = await request.json();
 
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json({ interpretation: "효소 처리 실험 설계 참고용으로 활용할 수 있습니다." });
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) {
+      console.warn('ANTHROPIC_API_KEY is missing');
     }
 
     const systemPrompt = `당신은 화장품 소재 연구 보조 AI입니다.
@@ -30,53 +30,39 @@ KEGG 대사경로: ${Array.isArray(kegg_pathways) ? kegg_pathways.slice(0,2).map
 
     console.log('=== KEGG Claude 프롬프트 ===');
     console.log(userPrompt);
-    console.log('=== 전달 데이터 ===');
-    console.log({
-      name_ko: name,
-      compounds_count: compounds?.length,
-      compounds_sample: compounds?.slice(0,3)?.map((c: any) => c.name),
-      kegg_enzymes_count: kegg_enzymes?.length,
-      kegg_enzymes_sample: kegg_enzymes?.slice(0,2),
-      kegg_pathways_count: kegg_pathways?.length,
-    });
 
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3.5-flash',
-      systemInstruction: systemPrompt 
-    });
-
+    const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY || '' });
     let interpretation = '';
-    let retries = 3;
     
-    while (retries > 0) {
+    // 2초 후 1회 재시도 (총 2번 시도)
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const result = await model.generateContent(userPrompt);
-        interpretation = result.response.text().trim();
-        console.log('=== AI Response ===');
-        console.log(interpretation);
+        const msg = await anthropic.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 300,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }]
+        });
+        
+        if (msg.content[0].type === 'text') {
+          interpretation = msg.content[0].text.trim();
+        }
         break; // 성공 시 루프 탈출
       } catch (error: any) {
-        retries--;
-        const isRateLimit = error.status === 429 || error.message?.includes('429');
-        const isOverloaded = error.status === 503 || error.message?.includes('503');
-        
-        if ((isRateLimit || isOverloaded) && retries > 0) {
-          console.warn(`[KEGG AI] API 제한 도달 (남은 재시도: ${retries}). 3초 대기 후 재시도...`);
-          await new Promise(r => setTimeout(r, 3000));
+        console.error(`KEGG AI Attempt ${attempt} failed:`, error.message);
+        if (attempt === 1) {
+          console.log('Retrying in 2 seconds...');
+          await new Promise(r => setTimeout(r, 2000));
         } else {
-          console.error('KEGG AI API Error:', error.message || error);
-          break; // 다른 에러거나 재시도 횟수 소진 시 루프 탈출
+          interpretation = "효소 처리 분석을 불러오는 중입니다. 잠시 후 다시 시도해주세요.";
         }
       }
-    }
-    if (!interpretation) {
-      interpretation = "효소 처리 실험 설계 참고용으로 활용할 수 있습니다.";
     }
 
     return NextResponse.json({ interpretation });
   } catch (e: any) {
     console.error('KEGG AI API Error:', e.message);
-    return NextResponse.json({ interpretation: "효소 처리 실험 설계 참고용으로 활용할 수 있습니다." });
+    return NextResponse.json({ interpretation: "효소 처리 분석을 불러오는 중입니다. 잠시 후 다시 시도해주세요." });
   }
 }
+
