@@ -144,11 +144,11 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       if ((material.kegg_pathways && material.kegg_pathways.length > 0) || (material.kegg_enzymes && material.kegg_enzymes.length > 0)) {
         setKeggLoading(true);
         try {
-          const res = await fetch('/api/ai/kegg', {
+          const res = await fetch('/api/kegg-interpretation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name: material.name_ko || material.name,
+              name_ko: material.name_ko,
               compounds: material.compounds,
               kegg_pathways: material.kegg_pathways,
               kegg_enzymes: material.kegg_enzymes
