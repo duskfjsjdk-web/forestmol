@@ -21,7 +21,7 @@ export function middleware(request: NextRequest) {
 
   // 2. 이미 로그인한 상태(통행증 소지)인데 대문(/login)이나 첫 페이지(/)에 접근하는 경우
   // -> 단, 우회 파라미터(?bypass=true)가 켜져 있으면 리다이렉트를 건너뛰고 해당 페이지를 그대로 렌더링합니다.
-  if (pathname === '/login' || pathname === '/') {
+  if (pathname === '/login') {
     if (token && !bypass) {
       const searchUrl = new URL('/app/search', request.url);
       return NextResponse.redirect(searchUrl);

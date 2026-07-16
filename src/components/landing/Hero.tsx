@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useModal } from './ModalSystem';
 
 export default function Hero() {
@@ -115,12 +116,12 @@ export default function Hero() {
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-4 pt-2">
-            <button 
-              onClick={() => openModal('pilot')}
+            <Link 
+              href="/app/search"
               className="px-7 py-[15px] bg-[rgba(255,255,255,.95)] hover:bg-white text-[#1B4D32] font-medium text-[15px] rounded-[8px] transition-all hover:-translate-y-[1px] hover:shadow-lg hover:shadow-white/5 select-none"
             >
-              무료 파일럿 신청
-            </button>
+              소재 탐색 시작
+            </Link>
             <a 
               href="#features" 
               className="px-7 py-[15px] text-white font-medium text-[15px] rounded-[8px] transition-all duration-200 select-none flex items-center justify-center"
