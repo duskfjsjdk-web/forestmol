@@ -44,7 +44,7 @@ export default function LandingInfo() {
               <div className="absolute top-6 right-6 text-6xl font-black text-stone-300/20 select-none group-hover:text-[#2D5016]/10 transition-colors">02</div>
               <h4 className="text-xl font-black mb-3 text-stone-900">AI RAG 알고리즘 분석</h4>
               <p className="text-stone-500 text-sm font-semibold leading-relaxed">
-                국내 공공데이터 5종(산림청·NIFoS·식약처·KIPRIS)과<br />KNApSAck·KEGG·PubChem 국제 오픈 DB를 연동하여<br />목표 활성 지표와 규제 성분을 교차 분석합니다.
+                국내 공공데이터 5종(산림청·NIFoS·식약처·KIPRIS)과<br />KNApSAck·KEGG·PubChem 국제 오픈 DB를 연동하여<br />소재 효능·성분·특허·식약처 적합성을 자동으로 분석합니다.
               </p>
             </div>
 
