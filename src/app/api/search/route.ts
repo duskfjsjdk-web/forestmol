@@ -143,7 +143,9 @@ export async function GET(request: Request) {
         display_species: displaySpecies,
         display_bioactivity: displayBioactivity,
         display_compounds: compoundList,
-        cosmetic_matched_ingredients: item.cosmetic_matched_ingredients
+        cosmetic_matched_ingredients: item.cosmetic_matched_ingredients,
+        kegg_enzymes: item.kegg_enzymes ?? null,
+        kegg_pathways: item.kegg_pathways ?? null
       };
     });
 

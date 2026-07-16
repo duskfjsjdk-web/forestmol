@@ -8,6 +8,8 @@ export async function POST(req: Request) {
   try {
     const { name_ko, compounds, kegg_enzymes, kegg_pathways } = await req.json();
     
+    console.log('백엔드 수신 데이터:', { name_ko, compoundsCount: compounds?.length, enzymesCount: kegg_enzymes?.length, pathwaysCount: kegg_pathways?.length });
+
     if (!kegg_enzymes?.length && !kegg_pathways?.length) {
       return Response.json({ interpretation: null });
     }

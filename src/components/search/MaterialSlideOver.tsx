@@ -144,6 +144,14 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       if ((material.kegg_pathways && material.kegg_pathways.length > 0) || (material.kegg_enzymes && material.kegg_enzymes.length > 0)) {
         setKeggLoading(true);
         try {
+          console.log('KEGG API 전달 데이터:', {
+            name_ko: material.name_ko,
+            compounds_count: material.compounds?.length,
+            kegg_enzymes_count: material.kegg_enzymes?.length,
+            kegg_enzymes_sample: material.kegg_enzymes?.slice(0,2),
+            kegg_pathways_count: material.kegg_pathways?.length,
+          });
+
           const res = await fetch('/api/kegg-interpretation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
