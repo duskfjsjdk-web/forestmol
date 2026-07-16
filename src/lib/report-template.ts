@@ -677,6 +677,11 @@ export function generateReportHtml(
               `).join('')}
             </tbody>
           </table>
+          <div style="text-align:right; margin-top: 8px;">
+            <a href="https://www.kipris.or.kr/khome/main.do#?query=${encodeURIComponent(m.name_ko)}" target="_blank" style="font-size:12px; font-weight:bold; color:#0F6E56; text-decoration:underline;">
+              KIPRIS에서 전체 ${m.patent_count}건 보기 →
+            </a>
+          </div>
           ` : ''}
 
           <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">KIPRIS 조회 기준: 실시간 API · 검색어: ${m.name_ko}</div>

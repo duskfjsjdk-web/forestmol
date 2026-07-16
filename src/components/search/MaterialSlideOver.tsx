@@ -36,7 +36,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [fetchedDistribution, setFetchedDistribution] = useState<string | null>(null); // distribution 보조 상태
   const [keggInterpretation, setKeggInterpretation] = useState<string | null>(null);
   const [keggLoading, setKeggLoading] = useState(false);
-  
+
   // PubMed 논문 상태
   const [papers, setPapers] = useState<any[]>([]);
   const [papersLoading, setPapersLoading] = useState(false);
@@ -128,7 +128,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
     // 3. raw_data / distribution 추가 조회 (RPC 반환값에 없을 때)
     const fetchExtraData = async () => {
-      if ((material as any).raw_data !== undefined && (material as any).distribution !== undefined) return; 
+      if ((material as any).raw_data !== undefined && (material as any).distribution !== undefined) return;
       try {
         const { data } = await supabaseClient
           .from('materials')
@@ -139,7 +139,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
           if ((material as any).raw_data === undefined) setRawData(data.raw_data);
           if ((material as any).distribution === undefined) setFetchedDistribution(data.distribution);
         }
-      } catch {}
+      } catch { }
     };
 
     // 4. KEGG AI 해석 추가 조회
@@ -151,7 +151,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
             name_ko: material.name_ko,
             compounds_count: material.compounds?.length,
             kegg_enzymes_count: material.kegg_enzymes?.length,
-            kegg_enzymes_sample: material.kegg_enzymes?.slice(0,2),
+            kegg_enzymes_sample: material.kegg_enzymes?.slice(0, 2),
             kegg_pathways_count: material.kegg_pathways?.length,
           });
 
@@ -233,9 +233,9 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const rawScientific = material.scientific_name || material.species || material.display_species || null;
   const displayScientific = rawScientific
     ? rawScientific
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
     : null;
 
   // 1. 생리활성 효능 가공 및 태그 추출
@@ -302,15 +302,15 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       ? (material as any).raw_data
       : rawData;
     if (!rd) return {};
-    
+
     let parsed = rd;
     if (typeof rd === 'string') {
       try {
         parsed = JSON.parse(rd);
         if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-      } catch {}
+      } catch { }
     }
-    
+
     if (Array.isArray(parsed) && parsed.length > 0) {
       return parsed[0];
     } else if (Array.isArray(parsed) && parsed.length === 0) {
@@ -320,7 +320,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   })();
   // 데이터 소스별 추출 조건 파싱
   const matDataSource = ((material as any).data_source || '').toLowerCase();
-  
+
   const bioactivityTags = parseBioactivityTags(rawBio);
 
   let extractionPart: string | null = null;
@@ -330,9 +330,9 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
   if (matDataSource.includes('바이오소재')) {
     // 산림바이오소재: raw_data 필드에서 파싱
-    extractionPart   = rawDataObj['추출부위'] || rawDataObj['부위'] || rawDataObj['채취부위'] || null;
+    extractionPart = rawDataObj['추출부위'] || rawDataObj['부위'] || rawDataObj['채취부위'] || null;
     extractionSolvent = rawDataObj['추출용매'] || rawDataObj['용매'] || null;
-    extractionMethod  = rawDataObj['추출방법'] || rawDataObj['추출 방법'] || null;
+    extractionMethod = rawDataObj['추출방법'] || rawDataObj['추출 방법'] || null;
   } else if (matDataSource.includes('약용식물')) {
     // 산림청_약용식물: bioactivity[1]을 채취 방법으로 표시
     const bioArr = Array.isArray(material.bioactivity) ? material.bioactivity as string[]
@@ -400,7 +400,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
     setCreateLoading(true);
     const res = await createProject(newProjectName.trim(), newProjectClient.trim());
-    
+
     if (res.success && res.project) {
       // 프로젝트 생성 성공 시 즉각 소재를 해당 프로젝트에 담습니다.
       const addRes = await addMaterialToProject(res.project.id, material.id, displayName);
@@ -408,7 +408,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       setShowModal(false);
       setNewProjectName('');
       setNewProjectClient('');
-      
+
       if (addRes.success) {
         alert(`✨ 새 프로젝트 [${res.project.name}]이 생성되었고 소재가 추가됐습니다.`);
       } else {
@@ -425,16 +425,14 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
       {/* 1. 뒷배경 어둡게 처리 (Backdrop) */}
       <div
         onClick={onClose}
-        className={`fixed inset-0 bg-[#1A1710]/40 backdrop-blur-[2px] z-40 transition-opacity duration-300 ${
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
+        className={`fixed inset-0 bg-[#1A1710]/40 backdrop-blur-[2px] z-40 transition-opacity duration-300 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
       />
 
       {/* 2. 우측 슬라이드 서랍장 패널 */}
       <aside
-        className={`fixed top-0 right-0 h-full w-full max-w-[460px] bg-white border-l border-stone-200 shadow-2xl z-50 flex flex-col justify-between transform transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
+        className={`fixed top-0 right-0 h-full w-full max-w-[460px] bg-white border-l border-stone-200 shadow-2xl z-50 flex flex-col justify-between transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
       >
         {/* 헤더 영역 */}
         <div className="p-6 border-b border-stone-100 bg-[#FAF7F0]/40 shrink-0">
@@ -653,12 +651,12 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                         {(material as any).cosmetic_matched_ingredients
                           .slice(0, showAllIngredients ? undefined : 5)
                           .map((ing: any, idx: number) => (
-                          <tr key={idx} className="text-emerald-900">
-                            <td className="px-3 py-2 font-medium border-r border-emerald-50">{ing.ingr_kor_name || '-'}</td>
-                            <td className="px-3 py-2 text-emerald-700 text-[11px] border-r border-emerald-50">{ing.ingr_eng_name || '-'}</td>
-                            <td className="px-3 py-2 font-mono text-[10px] text-emerald-600">{ing.cas_no || '-'}</td>
-                          </tr>
-                        ))}
+                            <tr key={idx} className="text-emerald-900">
+                              <td className="px-3 py-2 font-medium border-r border-emerald-50">{ing.ingr_kor_name || '-'}</td>
+                              <td className="px-3 py-2 text-emerald-700 text-[11px] border-r border-emerald-50">{ing.ingr_eng_name || '-'}</td>
+                              <td className="px-3 py-2 font-mono text-[10px] text-emerald-600">{ing.cas_no || '-'}</td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                     {(material as any).cosmetic_matched_ingredients.length > 5 && (
@@ -711,10 +709,10 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                 </h3>
                 <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#EEEDFE] text-[#3C3489]">생물학 활성 데이터</span>
               </div>
-              
+
               <div className="text-[11.5px] text-stone-700 bg-stone-50 p-3.5 rounded-lg border border-stone-200 leading-relaxed font-medium relative overflow-hidden">
                 <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[#6366F1] font-extrabold text-[10px]">✨ AI Analysis</span>
+                  <span className="text-[#6366F1] font-extrabold text-[10px]">✨ AI Analysis</span>
                   {keggLoading && <Loader2 className="w-3 h-3 text-stone-400 animate-spin" />}
                 </div>
                 {keggLoading ? (
@@ -734,7 +732,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                     </span>
                   </div>
                 )}
-                
+
                 {material.kegg_pathways && material.kegg_pathways.length > 0 && (
                   <div className="flex items-start gap-3">
                     <span className="text-stone-400 font-medium shrink-0 w-[60px]">대사 경로</span>
@@ -747,7 +745,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
               </div>
 
               <div className="mt-3 pt-2.5 border-t border-dashed border-stone-200 text-[10.5px] text-amber-700 leading-relaxed">
-                ⚠ 본 해석은 KEGG DB 기반 AI 생성 참고 정보이며 실험적 검증이 필요합니다.<br/>
+                ⚠ 본 해석은 KEGG DB 기반 AI 생성 참고 정보이며 실험적 검증이 필요합니다.<br />
                 <span className="text-stone-400 text-[10px]">출처: KEGG Database (genome.jp)</span>
               </div>
             </div>
@@ -785,7 +783,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
               <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">
                 국내 특허 선행조사 결과
               </h3>
-              
+
               {patentLoading ? (
                 <div className="flex items-center gap-2 text-stone-400 text-xs py-1 animate-pulse">
                   <Clock className="w-4 h-4 animate-spin text-[#2D5016]" />
@@ -800,7 +798,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                   <p className="text-[11px] text-stone-500 leading-relaxed">
                     출원 및 등록된 특허가 검색되었습니다. 제품 상용화 계획 수립 시 특허 침해 요소를 면밀히 분석할 것을 권장합니다.
                   </p>
-                  
+
                   {patentsList && patentsList.length > 0 && (
                     <div className="mt-3 bg-white border border-stone-200 rounded-lg overflow-hidden">
                       <table className="w-full text-left text-[11px] table-fixed">
@@ -835,6 +833,18 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                       </table>
                     </div>
                   )}
+                  
+                  <div className="mt-2 text-right">
+                    <a 
+                      href={`https://www.kipris.or.kr/khome/main.do#?query=${encodeURIComponent(material.name_ko || material.name)}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="inline-flex items-center gap-1 font-bold"
+                      style={{ fontSize: '12px', color: '#0F6E56', textDecoration: 'underline' }}
+                    >
+                      KIPRIS에서 전체 {patentCount}건 보기 →
+                    </a>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -917,11 +927,11 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                   </div>
                   <div className="space-y-2 mt-1">
                     <p className="text-xs font-bold text-stone-600">소재 확보 방법 2가지:</p>
-                    
+
                     <div className="bg-white border border-stone-200 rounded-lg p-3 space-y-1.5 shadow-sm">
                       <p className="text-[11px] font-bold text-stone-700">1. NIFoS 산림바이오소재은행 검색</p>
                       <p className="text-[10px] text-stone-500 leading-relaxed">
-                        동일 식물명 또는 학명으로 검색 후 분양 신청 가능 (승인까지 약 14일)<br/>
+                        동일 식물명 또는 학명으로 검색 후 분양 신청 가능 (승인까지 약 14일)<br />
                         → nifos.go.kr
                       </p>
                       <div className="inline-block px-2 py-1 bg-[#E1F5EE] border border-[#9FE1CB] rounded text-[#085041] text-[10px] font-bold mt-1">
@@ -948,7 +958,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                 <FileText className="w-3.5 h-3.5 text-stone-300" />
                 관련 논문 (PubMed)
               </h3>
-              
+
               <div className="space-y-4">
                 {papers.map((paper, idx) => (
                   <div key={paper.pmid || idx} className="space-y-1">
@@ -998,16 +1008,15 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
         {/* 하단 고정 버튼 영역 */}
         <div className="relative p-4 bg-white border-t border-stone-200 flex items-center gap-2 shrink-0">
-          
+
           {/* 북마크 버튼 */}
           <button
             onClick={handleBookmarkToggle}
             disabled={bookmarkLoading}
-            className={`w-11 h-11 flex items-center justify-center rounded-xl border transition-all ${
-              bookmarked
+            className={`w-11 h-11 flex items-center justify-center rounded-xl border transition-all ${bookmarked
                 ? 'bg-[#2D5016]/10 border-[#2D5016] text-[#2D5016]'
                 : 'bg-white border-stone-200 text-stone-400 hover:text-stone-600 hover:border-stone-300'
-            }`}
+              }`}
             title="북마크 담기"
           >
             {bookmarkLoading ? (
@@ -1101,7 +1110,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           {/* 어두운 배경 */}
           <div onClick={() => setShowModal(false)} className="fixed inset-0 bg-[#1A1710]/60 backdrop-blur-[1px]" />
-          
+
           {/* 모달 폼 */}
           <form onSubmit={handleCreateProjectSubmit} className="relative bg-white rounded-3xl p-7 max-w-md w-full border border-stone-200 shadow-2xl space-y-5 animate-scaleUp">
             <div className="flex justify-between items-center">
