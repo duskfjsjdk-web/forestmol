@@ -38,7 +38,7 @@ KEGG 대사경로: ${Array.isArray(kegg_pathways) ? kegg_pathways.slice(0,2).map
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const msg = await anthropic.messages.create({
-          model: 'claude-haiku-4-5-20251001',
+          model: 'claude-3-5-haiku-20241022',
           max_tokens: 300,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }]
