@@ -123,7 +123,7 @@ export function MaterialCard({ material, onClick, isSelected = false }: Material
           if (data.status === 'unavailable') {
             setPatentStatus('unavailable');
           } else {
-            setPatentCount(data.totalCount ?? 0);
+            setPatentCount(data.count ?? 0);
             setPatentStatus(null);
           }
         }
