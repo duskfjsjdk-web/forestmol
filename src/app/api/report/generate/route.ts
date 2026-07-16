@@ -388,7 +388,14 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
               } catch {}
             }
           }
-          const compNames = (compoundsList || [])
+          const PRIORITY_COMPOUNDS = ['piceid', 'polydatin', 'resveratrol', 'emodin', 'dihydroquercetin', 'taxifolin', 'physcion'];
+          const sortedCompounds = [...(compoundsList || [])].sort((a: any, b: any) => {
+            const aPri = PRIORITY_COMPOUNDS.findIndex(p => (a.name || '').toLowerCase().includes(p));
+            const bPri = PRIORITY_COMPOUNDS.findIndex(p => (b.name || '').toLowerCase().includes(p));
+            return (aPri === -1 ? 999 : aPri) - (bPri === -1 ? 999 : bPri);
+          });
+
+          const compNames = sortedCompounds
             .slice(0, 3)
             .map((c: any) => c.name)
             .join(',');

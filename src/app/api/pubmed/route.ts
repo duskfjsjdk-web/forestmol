@@ -13,11 +13,16 @@ export async function GET(request: Request) {
     const rawScientificName = searchParams.get('scientificName') || '';
     // 학명 정제: 첫 두 단어(속명, 종명)만 추출하고 저자명 등 특수문자 제거
     // 예: "Fallopia japonica (Houtt.) RonseDecr." -> "Fallopia japonica"
-    const scientificName = rawScientificName
+    let scientificName = rawScientificName
       .split(/[\s]+/)
       .slice(0, 2)
       .join(' ')
       .replace(/[^a-zA-Z\s]/g, '');
+
+    // 알려진 학명 오타 보정 (Polygonum cuspidata -> cuspidatum)
+    if (scientificName.toLowerCase() === 'polygonum cuspidata') {
+      scientificName = 'Polygonum cuspidatum';
+    }
     const compoundsParam = searchParams.get('compounds') || '';
 
     // 성분명 파라미터 파싱 (쉼표로 구분되어 입력)

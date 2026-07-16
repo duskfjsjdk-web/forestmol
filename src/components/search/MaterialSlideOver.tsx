@@ -171,16 +171,28 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
       setPapersLoading(true);
       try {
-        // 상위 성분 3개 추출
-        const compNames = (material.compounds || [])
+        // 대표 성분 우선순위로 정렬하여 상위 3개 추출
+        const PRIORITY_COMPOUNDS = ['piceid', 'polydatin', 'resveratrol', 'emodin', 'dihydroquercetin', 'taxifolin', 'physcion'];
+        const sortedCompounds = [...(material.compounds || [])].sort((a: any, b: any) => {
+          const aPri = PRIORITY_COMPOUNDS.findIndex(p => (a.name || '').toLowerCase().includes(p));
+          const bPri = PRIORITY_COMPOUNDS.findIndex(p => (b.name || '').toLowerCase().includes(p));
+          return (aPri === -1 ? 999 : aPri) - (bPri === -1 ? 999 : bPri);
+        });
+
+        const compNames = sortedCompounds
           .slice(0, 3)
           .map((c: any) => c.name)
           .join(',');
 
         const url = `/api/pubmed?scientificName=${encodeURIComponent(scientificName)}&compounds=${encodeURIComponent(compNames)}`;
+        console.log('Fetching PubMed with URL:', url);
         const res = await fetch(url);
-        if (!res.ok) throw new Error('PubMed 조회 실패');
+        if (!res.ok) {
+          console.error('PubMed API error response:', res.status);
+          throw new Error('PubMed 조회 실패');
+        }
         const data = await res.json();
+        console.log('PubMed API response data:', data);
         if (active && data.success) {
           setPapers(data.papers || []);
         }
@@ -884,7 +896,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
           </section>
 
           {/* 관련 논문 (PubMed) 섹션 */}
-          {(!papersLoading && papers.length > 0) && (
+          {(!papersLoading && papers && papers.length > 0) && (
             <section className="space-y-3.5 border-t border-stone-200/60 pt-5">
               <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-stone-300" />
