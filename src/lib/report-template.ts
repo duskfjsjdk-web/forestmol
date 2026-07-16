@@ -677,7 +677,10 @@ export function generateReportHtml(
               `).join('')}
             </tbody>
           </table>
-          <div style="text-align:right; margin-top: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+            <span style="font-size: 10px; color: #78716C; background: #F5F5F4; padding: 4px 8px; border-radius: 4px;">
+              총 ${m.patent_count}건 중 ${m.patents.length}건 표시
+            </span>
             <a href="https://www.kipris.or.kr/khome/main.do#?query=${encodeURIComponent(m.name_ko)}" target="_blank" style="font-size:12px; font-weight:bold; color:#0F6E56; text-decoration:underline;">
               KIPRIS에서 전체 ${m.patent_count}건 보기 →
             </a>

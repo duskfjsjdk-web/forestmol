@@ -15,7 +15,7 @@ async function fetchPatentData(query: string): Promise<{ count: number; patents:
   const apiKey = process.env.KIPRIS_API_KEY;
   if (!apiKey) return null;
   try {
-    const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=3&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
+    const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=20&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
     const res = await fetch(url, { method: 'GET' });
     if (!res.ok) return null;
     const xmlData = await res.text();
@@ -33,7 +33,7 @@ async function fetchPatentData(query: string): Promise<{ count: number; patents:
     let patentsList: any[] = [];
     if (itemsObj && itemsObj.PatentUtilityInfo) {
       const info = Array.isArray(itemsObj.PatentUtilityInfo) ? itemsObj.PatentUtilityInfo : [itemsObj.PatentUtilityInfo];
-      patentsList = info.slice(0, 3).map((p: any) => ({
+      patentsList = info.slice(0, 20).map((p: any) => ({
         title: p.InventionName || '',
         applicant: p.Applicant || '',
         date: p.ApplicationDate || '',
