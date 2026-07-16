@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
     const apiKey = process.env.KIPRIS_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
+      return NextResponse.json({ count: null, status: 'unavailable', patents: [], debug: 'No API Key' });
     }
 
     const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=5&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
@@ -28,14 +28,14 @@ export async function GET(request: Request) {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
+      return NextResponse.json({ count: null, status: 'unavailable', patents: [], debug: 'Fetch failed', resStatus: res.status });
     }
 
     const xmlData = await res.text();
     
     // Check if the response is actually an HTML error page (e.g. 404 from proxy/firewall)
     if (xmlData.trim().startsWith('<html') || xmlData.trim().startsWith('<!DOCTYPE html')) {
-      return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
+      return NextResponse.json({ count: null, status: 'unavailable', patents: [], debug: 'HTML response' });
     }
 
     const parser = new XMLParser({
