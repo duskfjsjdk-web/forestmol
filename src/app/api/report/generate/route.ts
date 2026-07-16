@@ -13,19 +13,30 @@ import { XMLParser } from 'fast-xml-parser';
 // 특허 정보 조회 - API 실패 시 null 반환
 async function fetchPatentData(query: string): Promise<{ count: number; patents: any[] } | null> {
   const apiKey = process.env.KIPRIS_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.error('❌ [Report Patent] KIPRIS_API_KEY is missing');
+    return null;
+  }
   try {
     const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=20&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url, { method: 'GET' });
-    if (!res.ok) return null;
+    const res = await fetch(url, { method: 'GET', cache: 'no-store' });
+    if (!res.ok) {
+      console.error(`❌ [Report Patent] KIPRIS API fetch failed: ${res.status}`);
+      return null;
+    }
     const xmlData = await res.text();
     if (xmlData.trim().startsWith('<html') || xmlData.trim().startsWith('<!DOCTYPE html')) {
+      console.error('❌ [Report Patent] KIPRIS API returned HTML instead of XML');
       return null;
     }
     const parser = new XMLParser({ ignoreAttributes: false, parseTagValue: false });
     const jsonObj = parser.parse(xmlData);
     const itemsObj = jsonObj?.response?.body?.items;
     
+    if (jsonObj?.response?.header?.resultCode !== '00') {
+      console.error('❌ [Report Patent] KIPRIS API error code:', jsonObj?.response?.header?.resultCode, jsonObj?.response?.header?.resultMsg);
+    }
+
     let totalCount = 0;
     if (itemsObj && itemsObj.TotalSearchCount) {
       totalCount = parseInt(itemsObj.TotalSearchCount, 10);
@@ -40,8 +51,10 @@ async function fetchPatentData(query: string): Promise<{ count: number; patents:
         status: p.RegistrationStatus || ''
       }));
     }
+    console.log(`✅ [Report Patent] Fetched ${totalCount} patents for ${query}`);
     return { count: totalCount, patents: patentsList };
-  } catch {
+  } catch (err: any) {
+    console.error('❌ [Report Patent] Exception during KIPRIS API fetch:', err.message);
     return null;
   }
 }
