@@ -643,12 +643,42 @@ export function generateReportHtml(
             에서 직접 검색하시기 바랍니다.
           </div>
           ` : `
-          <div class="patent-row">
+          <div class="patent-row" style="margin-bottom: 12px;">
             <div class="patent-card" style="text-align: left; padding: 12px 16px; background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: 6px; display: inline-block; min-width: 200px;">
               <div class="patent-label" style="font-size: 11.5px; color: var(--color-text-tertiary);">KIPRIS 특허 조회 결과</div>
               <div class="patent-num" style="font-size: 22px; font-weight: 700; color: var(--color-text-primary); margin-top: 4px;">총 ${m.patent_count}건</div>
             </div>
           </div>
+          
+          ${Array.isArray(m.patents) && m.patents.length > 0 ? `
+          <table class="tbl" style="margin-top: 8px;">
+            <colgroup>
+              <col style="width:50%;">
+              <col style="width:30%;">
+              <col style="width:20%;">
+            </colgroup>
+            <thead>
+              <tr>
+                <th style="text-align:left;">상위 특허명</th>
+                <th style="text-align:center;">출원인</th>
+                <th style="text-align:center;">날짜/상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${m.patents.map(pt => `
+              <tr>
+                <td style="text-align:left; font-weight:bold; color:var(--color-text-primary);">${pt.title || '-'}</td>
+                <td style="text-align:center;">${pt.applicant || '-'}</td>
+                <td style="text-align:center;">
+                  <div>${pt.date || '-'}</div>
+                  <span style="font-size:10px; color:#555; background:#eee; padding:2px 4px; border-radius:3px;">${pt.status || '-'}</span>
+                </td>
+              </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ` : ''}
+
           <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px">KIPRIS 조회 기준: 실시간 API · 검색어: ${m.name_ko}</div>
           `}
         </div>

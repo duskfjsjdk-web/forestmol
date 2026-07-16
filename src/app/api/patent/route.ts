@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
+import { XMLParser } from 'fast-xml-parser';
 
 export const dynamic = 'force-dynamic';
 
-// ─────────────────────────────────────────────
-// KIPRIS 특허 정보 조회 백엔드 서비스 상자
-// ─────────────────────────────────────────────
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -17,43 +15,64 @@ export async function GET(request: Request) {
       );
     }
 
-    // KIPRIS 전용 API 키가 없으면 바로 unavailable 반환
-    if (!process.env.DATA_GO_KR_API_KEY) {
-      return NextResponse.json({ count: null, status: 'unavailable' });
+    const apiKey = process.env.KIPRIS_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
     }
 
-    const apiKey = process.env.DATA_GO_KR_API_KEY;
-
-    const url = `http://apis.data.go.kr/1192000/PatUtiModInfoSearchService/getWordSearch?word=${encodeURIComponent(query)}&year=0&patent=true&utility=true&numOfRows=1&pageNo=1&serviceKey=${apiKey}`;
+    const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=5&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
 
     const res = await fetch(url, {
       method: 'GET',
-      headers: { 'Accept': 'application/xml' },
       next: { revalidate: 3600 },
     });
 
     if (!res.ok) {
-      // HTTP 에러(500 포함) → unavailable
-      return NextResponse.json({ count: null, status: 'unavailable' });
+      return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
     }
 
     const xmlData = await res.text();
-
-    // XML에서 totalCount 정규식 추출
-    const match = xmlData.match(/<totalCount>(\d+)<\/totalCount>/i);
-    if (match && match[1]) {
-      return NextResponse.json({
-        success: true,
-        totalCount: Number(match[1]),
-        source: 'api',
-      });
+    
+    // Check if the response is actually an HTML error page (e.g. 404 from proxy/firewall)
+    if (xmlData.trim().startsWith('<html') || xmlData.trim().startsWith('<!DOCTYPE html')) {
+      return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
     }
 
-    // totalCount 없으면 → unavailable (서비스키 미승인 등)
-    return NextResponse.json({ count: null, status: 'unavailable' });
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      parseTagValue: false // Do not parse numbers automatically to keep dates as strings
+    });
+    
+    const jsonObj = parser.parse(xmlData);
+
+    const itemsObj = jsonObj?.response?.body?.items;
+    let totalCount = 0;
+    
+    if (itemsObj && itemsObj.TotalSearchCount) {
+      totalCount = parseInt(itemsObj.TotalSearchCount, 10);
+    }
+
+    let patentsList: any[] = [];
+    if (itemsObj && itemsObj.PatentUtilityInfo) {
+      // It can be an array or a single object
+      const info = Array.isArray(itemsObj.PatentUtilityInfo) ? itemsObj.PatentUtilityInfo : [itemsObj.PatentUtilityInfo];
+      patentsList = info.slice(0, 3).map((p: any) => ({
+        title: p.InventionName || '',
+        applicant: p.Applicant || '',
+        date: p.ApplicationDate || '',
+        status: p.RegistrationStatus || ''
+      }));
+    }
+
+    return NextResponse.json({
+      success: true,
+      count: totalCount,
+      patents: patentsList,
+      status: 'success'
+    });
 
   } catch (error: any) {
     console.error('❌ [Patent API] 에러:', error.message);
-    return NextResponse.json({ count: null, status: 'unavailable' });
+    return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
   }
 }

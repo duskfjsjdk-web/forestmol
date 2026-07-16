@@ -8,23 +8,43 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const dynamic = 'force-dynamic';
 
-// 특허 개수 조회 - API 실패 시 null 반환
-async function fetchPatentCount(query: string): Promise<number | null> {
-  const apiKey = process.env.DATA_GO_KR_API_KEY;
+import { XMLParser } from 'fast-xml-parser';
+
+// 특허 정보 조회 - API 실패 시 null 반환
+async function fetchPatentData(query: string): Promise<{ count: number; patents: any[] } | null> {
+  const apiKey = process.env.KIPRIS_API_KEY;
   if (!apiKey) return null;
   try {
-    const url = `http://apis.data.go.kr/1192000/PatUtiModInfoSearchService/getWordSearch?word=${encodeURIComponent(query)}&year=0&patent=true&utility=true&numOfRows=1&pageNo=1&serviceKey=${apiKey}`;
-    const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/xml' } });
+    const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=3&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, { method: 'GET' });
     if (!res.ok) return null;
     const xmlData = await res.text();
-    const match = xmlData.match(/<totalCount>(\d+)<\/totalCount>/i);
-    if (match && match[1]) return Number(match[1]);
-    return null;
+    if (xmlData.trim().startsWith('<html') || xmlData.trim().startsWith('<!DOCTYPE html')) {
+      return null;
+    }
+    const parser = new XMLParser({ ignoreAttributes: false, parseTagValue: false });
+    const jsonObj = parser.parse(xmlData);
+    const itemsObj = jsonObj?.response?.body?.items;
+    
+    let totalCount = 0;
+    if (itemsObj && itemsObj.TotalSearchCount) {
+      totalCount = parseInt(itemsObj.TotalSearchCount, 10);
+    }
+    let patentsList: any[] = [];
+    if (itemsObj && itemsObj.PatentUtilityInfo) {
+      const info = Array.isArray(itemsObj.PatentUtilityInfo) ? itemsObj.PatentUtilityInfo : [itemsObj.PatentUtilityInfo];
+      patentsList = info.slice(0, 3).map((p: any) => ({
+        title: p.InventionName || '',
+        applicant: p.Applicant || '',
+        date: p.ApplicationDate || '',
+        status: p.RegistrationStatus || ''
+      }));
+    }
+    return { count: totalCount, patents: patentsList };
   } catch {
     return null;
   }
 }
-
 
 async function fetchPubChemCid(query: string): Promise<number | null> {
   console.log(`🧪 [PubChem CID] 조회 시도 (CAS 또는 성분명): "${query}"`);
@@ -347,7 +367,7 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
 
     // 5. KIPRIS 실시간 특허 연동 및 PubChem 구조식 CID 동시 획득
     const mappedMaterials = await Promise.all(materials.map(async (m: any) => {
-      const patentCount = await fetchPatentCount(m.name_ko || m.name || '');
+      const patentData = await fetchPatentData(m.name_ko || m.name || '');
       
       // 첫 번째 성분의 cas_no 및 영문 성분명 가져오기
       let firstCasNo = '';
@@ -435,8 +455,8 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
         distribution: (m as any).distribution || null,
         bioactivity: m.bioactivity || [],
         compounds: m.compounds || [],
-        patent_count: patentCount,
-        patents: [],
+        patent_count: patentData ? patentData.count : null,
+        patents: patentData ? patentData.patents : [],
         raw_data: (() => { console.log('raw_data:', m.raw_data); return m.raw_data || {}; })(),
         cosmetic_allowed: m.cosmetic_allowed,
         cosmetic_matched_ingredients: m.cosmetic_matched_ingredients || null,

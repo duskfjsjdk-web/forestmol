@@ -23,6 +23,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [bookmarked, setBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [patentCount, setPatentCount] = useState<number | null>(null);
+  const [patentsList, setPatentsList] = useState<any[]>([]);
   const [patentLoading, setPatentLoading] = useState(true);
   const [showAllIngredients, setShowAllIngredients] = useState(false);
   const [patentStatus, setPatentStatus] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
 
     // 상태 초기화
     setPatentCount(null);
+    setPatentsList([]);
     setPatentLoading(true);
     setShowAllCompounds(false);
     setShowAllPathways(false);
@@ -106,7 +108,8 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
           if (data.status === 'unavailable') {
             setPatentStatus('unavailable');
           } else {
-            setPatentCount(data.totalCount ?? 0);
+            setPatentCount(data.count ?? 0);
+            setPatentsList(data.patents || []);
             setPatentStatus(null);
           }
         }
@@ -797,6 +800,41 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                   <p className="text-[11px] text-stone-500 leading-relaxed">
                     출원 및 등록된 특허가 검색되었습니다. 제품 상용화 계획 수립 시 특허 침해 요소를 면밀히 분석할 것을 권장합니다.
                   </p>
+                  
+                  {patentsList && patentsList.length > 0 && (
+                    <div className="mt-3 bg-white border border-stone-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-left text-[11px] table-fixed">
+                        <colgroup>
+                          <col className="w-[50%]" />
+                          <col className="w-[30%]" />
+                          <col className="w-[20%]" />
+                        </colgroup>
+                        <thead className="bg-stone-50 text-stone-500 font-semibold border-b border-stone-200">
+                          <tr>
+                            <th className="px-3 py-2 border-r border-stone-100">상위 특허명</th>
+                            <th className="px-2 py-2 border-r border-stone-100 text-center">출원인</th>
+                            <th className="px-2 py-2 text-center">날짜/상태</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                          {patentsList.map((pt, idx) => (
+                            <tr key={idx} className="text-stone-700 hover:bg-stone-50/50">
+                              <td className="px-3 py-2 font-medium border-r border-stone-50" title={pt.title}>
+                                <div className="line-clamp-2 leading-tight">{pt.title}</div>
+                              </td>
+                              <td className="px-2 py-2 border-r border-stone-50 text-center" title={pt.applicant}>
+                                <div className="truncate text-[10px]">{pt.applicant}</div>
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                <div className="text-[10px] text-stone-500 mb-0.5 font-mono">{pt.date}</div>
+                                <span className={`inline-block text-[9px] px-1.5 py-0.5 rounded font-bold ${pt.status?.includes('등록') ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-600'}`}>{pt.status || '-'}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
