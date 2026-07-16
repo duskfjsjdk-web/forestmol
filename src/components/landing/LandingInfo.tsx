@@ -44,7 +44,7 @@ export default function LandingInfo() {
               <div className="absolute top-6 right-6 text-6xl font-black text-stone-300/20 select-none group-hover:text-[#2D5016]/10 transition-colors">02</div>
               <h4 className="text-xl font-black mb-3 text-stone-900">AI RAG 알고리즘 분석</h4>
               <p className="text-stone-500 text-sm font-semibold leading-relaxed">
-                산림청 공공데이터 7종 및 특허 빅데이터 허브와 연동하여, 목표 활성 지표와 규제 성분을 교차 분석합니다.
+                산림청·NIFoS 공공데이터 5종 및 KIPRIS 특허 Open API와 연동하여, 목표 활성 지표와 규제 성분을 교차 분석합니다.
               </p>
             </div>
 
