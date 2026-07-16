@@ -31,22 +31,22 @@ KEGG 대사경로: ${Array.isArray(kegg_pathways) ? kegg_pathways.slice(0,2).map
     console.log('=== KEGG Claude 프롬프트 ===');
     console.log(userPrompt);
 
-    const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY || '' });
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      console.warn('GEMINI_API_KEY is missing');
+    }
+
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
     let interpretation = '';
     
     // 2초 후 1회 재시도 (총 2번 시도)
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const msg = await anthropic.messages.create({
-          model: 'claude-3-5-haiku-20241022',
-          max_tokens: 300,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userPrompt }]
-        });
-        
-        if (msg.content[0].type === 'text') {
-          interpretation = msg.content[0].text.trim();
-        }
+        const result = await model.generateContent(systemPrompt + '\n\n' + userPrompt);
+        interpretation = result.response.text().trim();
         break; // 성공 시 루프 탈출
       } catch (error: any) {
         console.error(`KEGG AI Attempt ${attempt} failed:`, error.message);

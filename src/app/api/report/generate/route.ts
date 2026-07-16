@@ -281,8 +281,10 @@ ${formattedMaterials}
     // 슬라이드오버와 동일한 방식으로 소재별 개별 Claude 호출로 생성
     console.log('🔍 [KEGG 해석 확인] material_kegg_interpretations:', JSON.stringify(aiResult.material_kegg_interpretations));
 
-    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-    const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const GEMINI_API_KEY_LOCAL = process.env.GEMINI_API_KEY || '';
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY_LOCAL);
+    const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     const keggSystemPrompt = `당신은 화장품 소재 연구 보조 AI입니다.
 주어진 실제 DB 데이터만 기반으로 설명합니다.
@@ -319,16 +321,8 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
       let interpretation = '';
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          const msg = await anthropic.messages.create({
-            model: 'claude-3-5-haiku-20241022',
-            max_tokens: 300,
-            system: keggSystemPrompt,
-            messages: [{ role: 'user', content: keggPrompt }]
-          });
-          
-          if (msg.content[0].type === 'text') {
-            interpretation = msg.content[0].text.trim();
-          }
+          const result = await geminiModel.generateContent(keggSystemPrompt + '\n\n' + keggPrompt);
+          interpretation = result.response.text().trim();
           break;
         } catch (keggErr: any) {
           console.error(`⚠️ [KEGG 해석] ${mName} Attempt ${attempt} failed:`, keggErr.message);
