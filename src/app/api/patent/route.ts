@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ count: null, status: 'unavailable', patents: [] });
     }
 
-    const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=5&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
+    const url = `http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo?word=${encodeURIComponent(query)}&numOfRows=20&pageNo=1&accessKey=${encodeURIComponent(apiKey)}`;
 
     const res = await fetch(url, {
       method: 'GET',
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     if (itemsObj && itemsObj.PatentUtilityInfo) {
       // It can be an array or a single object
       const info = Array.isArray(itemsObj.PatentUtilityInfo) ? itemsObj.PatentUtilityInfo : [itemsObj.PatentUtilityInfo];
-      patentsList = info.slice(0, 3).map((p: any) => ({
+      patentsList = info.slice(0, 20).map((p: any) => ({
         title: p.InventionName || '',
         applicant: p.Applicant || '',
         date: p.ApplicationDate || '',

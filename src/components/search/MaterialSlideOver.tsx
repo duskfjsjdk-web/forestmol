@@ -26,6 +26,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
   const [patentsList, setPatentsList] = useState<any[]>([]);
   const [patentLoading, setPatentLoading] = useState(true);
   const [showAllIngredients, setShowAllIngredients] = useState(false);
+  const [showAllPatents, setShowAllPatents] = useState(false);
   const [patentStatus, setPatentStatus] = useState<string | null>(null);
   const [showAllCompounds, setShowAllCompounds] = useState(false);
   const [showAllPathways, setShowAllPathways] = useState(false);
@@ -73,6 +74,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
     setShowAllPathways(false);
     setShowAllEnzymes(false);
     setShowAllIngredients(false);
+    setShowAllPatents(false);
     setShowDropdown(false);
     setShowModal(false);
     setShowRawBio(false);
@@ -815,7 +817,7 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-100">
-                          {patentsList.map((pt, idx) => (
+                          {(showAllPatents ? patentsList : patentsList.slice(0, 3)).map((pt, idx) => (
                             <tr key={idx} className="text-stone-700 hover:bg-stone-50/50">
                               <td className="px-3 py-2 font-medium border-r border-stone-50" title={pt.title}>
                                 <div className="line-clamp-2 leading-tight">{pt.title}</div>
@@ -831,10 +833,27 @@ export function MaterialSlideOver({ material, isOpen, onClose }: MaterialSlideOv
                           ))}
                         </tbody>
                       </table>
+                      {patentsList.length > 3 && (
+                        <div className="bg-stone-50 border-t border-stone-200">
+                          <button
+                            onClick={() => setShowAllPatents(!showAllPatents)}
+                            className="w-full py-2 text-[10px] font-bold text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors flex items-center justify-center gap-1"
+                          >
+                            {showAllPatents ? (
+                              <>접기 <ChevronUp className="w-3 h-3" /></>
+                            ) : (
+                              <>외 {patentsList.length - 3}건 더보기 <ChevronDown className="w-3 h-3" /></>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                   
-                  <div className="mt-2 text-right">
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-[10px] text-stone-500 font-medium bg-stone-100 px-2 py-1 rounded">
+                      총 {patentCount}건 중 {patentsList.length}건 표시
+                    </span>
                     <a 
                       href={`https://www.kipris.or.kr/khome/main.do#?query=${encodeURIComponent(material.name_ko || material.name)}`} 
                       target="_blank" 
