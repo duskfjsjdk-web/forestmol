@@ -664,8 +664,8 @@ export function generateReportHtml(
                 <th style="text-align:center;">날짜/상태</th>
               </tr>
             </thead>
-            <tbody>
-              ${m.patents.map(pt => `
+            <tbody id="patent-default-${m.id}">
+              ${m.patents.slice(0, 3).map(pt => `
               <tr>
                 <td style="text-align:left; font-weight:bold; color:var(--color-text-primary);">${pt.title || '-'}</td>
                 <td style="text-align:center;">${pt.applicant || '-'}</td>
@@ -676,7 +676,41 @@ export function generateReportHtml(
               </tr>
               `).join('')}
             </tbody>
+            ${m.patents.length > 3 ? `
+            <tbody id="patent-more-${m.id}" style="display:none">
+              ${m.patents.slice(3).map(pt => `
+              <tr>
+                <td style="text-align:left; font-weight:bold; color:var(--color-text-primary);">${pt.title || '-'}</td>
+                <td style="text-align:center;">${pt.applicant || '-'}</td>
+                <td style="text-align:center;">
+                  <div>${pt.date || '-'}</div>
+                  <span style="font-size:10px; color:#555; background:#eee; padding:2px 4px; border-radius:3px;">${pt.status || '-'}</span>
+                </td>
+              </tr>
+              `).join('')}
+            </tbody>
+            ` : ''}
           </table>
+
+          ${m.patents.length > 3 ? `
+          <button 
+            id="patent-toggle-${m.id}"
+            onclick="
+              var more = document.getElementById('patent-more-${m.id}');
+              var btn = document.getElementById('patent-toggle-${m.id}');
+              if (more.style.display === 'none') {
+                more.style.display = 'table-row-group';
+                btn.textContent = '접기 ▲';
+              } else {
+                more.style.display = 'none';
+                btn.textContent = '외 ${m.patents.length - 3}건 더보기 ▼';
+              }
+            "
+            style="color: #0F6E56; font-size: 12px; background: none; border: none; cursor: pointer; margin-top: 8px; text-decoration: underline;"
+          >
+            외 ${m.patents.length - 3}건 더보기 ▼
+          </button>
+          ` : ''}
           <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
             <span style="font-size: 10px; color: #78716C; background: #F5F5F4; padding: 4px 8px; border-radius: 4px;">
               총 ${m.patent_count}건 중 ${m.patents.length}건 표시
