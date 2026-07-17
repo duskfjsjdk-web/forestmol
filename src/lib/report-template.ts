@@ -39,6 +39,7 @@ interface MaterialData {
     doi: string;
     url: string;
   }>;
+  kegg_interpretation?: string;
 }
 
 interface ProjectData {
@@ -369,7 +370,8 @@ export function generateReportHtml(
       }
 
       const mName = m.name_ko || m.name || '';
-      const interpretationText = aiResult?.material_kegg_interpretations?.[mName] 
+      const interpretationText = m.kegg_interpretation
+        || aiResult?.material_kegg_interpretations?.[mName] 
         || "효소 처리 실험 설계 참고용으로 활용할 수 있습니다.";
 
       keggSectionHtml = `
@@ -382,7 +384,7 @@ export function generateReportHtml(
           </div>
           
           <div style="font-size: 11.5px; color: var(--color-text-primary); font-weight: 500; margin-bottom: 14px; line-height: 1.6; padding: 12px; background-color: #F8F9FA; border-radius: 6px; border: 1px solid #E9ECEF;">
-            <span style="color: #6366F1; font-weight: 800; font-size: 10px; margin-bottom: 4px; display: inline-block;">✨ AI Analysis</span><br/>
+            <span style="color: #6366F1; font-weight: 800; font-size: 10px; margin-bottom: 4px; display: inline-block;">✨ AI 해석</span><br/>
             ${interpretationText}
           </div>
 

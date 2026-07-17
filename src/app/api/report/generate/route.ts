@@ -378,7 +378,7 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
     }
     // ─────────────────────────────────────────────────────────────────
 
-    // 5. KIPRIS 실시간 특허 연동 및 PubChem 구조식 CID 동시 획득
+    // 5. KIPRIS 실시간 특허 연동 및 PubChem 구조식 CID, PubMed 논문 동시 획득
     const mappedMaterials = await Promise.all(materials.map(async (m: any) => {
       const patentData = await fetchPatentData(m.name_ko || m.name || '');
       
@@ -419,6 +419,8 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
       // PubMed 논문 조회 추가
       let papers: any[] = [];
       const scientificName = m.scientific_name || m.species || '';
+      const origin = request.url ? new URL(request.url).origin : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000');
+      
       if (scientificName) {
         try {
           // 상위 성분 3개 추출
@@ -444,7 +446,6 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
             .map((c: any) => c.name)
             .join(',');
 
-          const origin = request.url ? new URL(request.url).origin : '';
           const pubmedRes = await fetch(`${origin}/api/pubmed?scientificName=${encodeURIComponent(scientificName)}&compounds=${encodeURIComponent(compNames)}`);
           if (pubmedRes.ok) {
             const pubmedData = await pubmedRes.json();
@@ -455,6 +456,30 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
         } catch (e: any) {
           console.error(`⚠️ [Report Generate] ${m.name_ko} PubMed 조회 실패:`, e.message);
         }
+      }
+
+      // KEGG AI 해석 생성 코드 추가
+      let kegg_interpretation = '';
+      try {
+        const keggResponse = await fetch(
+          `${origin}/api/kegg-interpretation`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name_ko: m.name_ko,
+              compounds: m.compounds,
+              kegg_enzymes: m.kegg_enzymes,
+              kegg_pathways: m.kegg_pathways
+            })
+          }
+        );
+        if (keggResponse.ok) {
+          const { interpretation } = await keggResponse.json();
+          kegg_interpretation = interpretation || '';
+        }
+      } catch (e: any) {
+        console.error(`⚠️ [Report Generate] ${m.name_ko} KEGG Interpretation failed:`, e.message);
       }
 
       return {
@@ -477,7 +502,8 @@ KEGG 대사경로: ${Array.isArray(m.kegg_pathways) ? m.kegg_pathways.slice(0,2)
         kegg_enzymes: m.kegg_enzymes || [],
         kegg_pathways: m.kegg_pathways || [],
         pubchem_cid: cid,
-        papers
+        papers,
+        kegg_interpretation
       };
     }));
 
